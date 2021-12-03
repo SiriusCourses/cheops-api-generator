@@ -1,0 +1,76 @@
+-- sink :: Show a => ConduitT a Void (ResourceT IO) () -- consumes a stream of Show a, no result
+-- sink = awaitForever $ \x -> yield $ print x
+-- foo =  .| sink
+
+main :: IO ()
+main = do
+    l <- runResourceT . sourceToList $ decodeFile "/root/src/config-generation/models/latex-request-object-inc.yaml"
+    print l
+
+-- main :: IO ()
+-- main = do
+--     v  <- decodeFileEither "/root/src/config-generation/models/latex-request-object.yaml"
+--     case v of
+--       Left pe -> print pe
+--       Right a -> print (a :: Value)
+--     v'  <- decodeFileEither "/root/src/config-generation/models/latex-request-object-inc.yaml"
+--     case v' of
+--       Left pe -> print pe
+--       Right a -> print (a :: Value)
+{- no include
+[EventStreamStart
+    ,EventDocumentStart
+        ,EventMappingStart NoTag BlockMapping Nothing
+            ,EventScalar "type" NoTag Plain Nothing         ,EventScalar "object" NoTag Plain Nothing
+            ,EventScalar "title" NoTag Plain Nothing        ,EventScalar "LatexRequest" NoTag Plain Nothing
+            ,EventScalar "required" NoTag Plain Nothing     ,EventSequenceStart NoTag BlockSequence Nothing
+                                                                ,EventScalar "ratio" NoTag Plain Nothing
+                                                            ,EventSequenceEnd
+            ,EventScalar "properties" NoTag Plain Nothing   ,EventMappingStart NoTag BlockMapping Nothing
+                                                                ,EventScalar "ratio" NoTag Plain Nothing ,EventMappingStart NoTag BlockMapping Nothing
+                                                                                                            ,EventScalar "type" NoTag Plain Nothing
+                                                                                                            ,EventScalar "text" NoTag Plain Nothing
+                                                                                                            ,EventScalar "description" NoTag Plain Nothing
+                                                                                                            ,EventScalar "\208\148\209\128\208\190\208\177\209\140 \208\183\208\176\208\191\208\184\209\129\208\176\208\189\208\189\208\176\209\143 \209\130\208\181\208\186\209\129\209\130\208\190\208\188\n" NoTag Literal Nothing
+                                                                                                            ,EventScalar "example" NoTag Plain Nothing
+                                                                                                            ,EventScalar "1 - 3/4" NoTag DoubleQuoted Nothing
+                                                                                                         ,EventMappingEnd
+                                                            ,EventMappingEnd
+        ,EventMappingEnd
+    ,EventDocumentEnd
+,EventStreamEnd]
+-}
+{- with include
+[EventStreamStart
+    ,EventDocumentStart
+        ,EventMappingStart NoTag BlockMapping Nothing
+            ,EventScalar "type" NoTag Plain Nothing ,EventScalar "object" NoTag Plain Nothing
+            ,EventScalar "title" NoTag Plain Nothing ,EventScalar "LatexRequest" NoTag Plain Nothing
+            ,EventScalar "required" NoTag Plain Nothing ,EventSequenceStart NoTag BlockSequence Nothing
+                                                            ,EventScalar "ratio" NoTag Plain Nothing
+                                                        ,EventSequenceEnd
+                                                        ,EventScalar "properties" NoTag Plain Nothing   ,EventMappingStart NoTag BlockMapping Nothing,
+                                                                                                            EventScalar "ratio" NoTag Plain Nothing, EventScalar "./ratio.yaml" (UriTag "!include") DoubleQuoted Nothing
+                                                                                                        ,EventMappingEnd
+        ,EventMappingEnd
+    ,EventDocumentEnd
+,EventStreamEnd]
+-}
+{-
+Object (fromList [
+        ("properties", Object ( fromList [
+                ("ratio",Object (
+                    fromList [
+                        ("description",String "\1044\1088\1086\1073\1100 \1079\1072\1087\1080\1089\1072\1085\1085\1072\1103 \1090\1077\1082\1089\1090\1086\1084\n"),
+                        ("example",String "1 - 3/4"),
+                        ("type",String "text")
+                    ]
+                ))
+            ]))
+        ,("required",Array [
+                String "ratio"
+            ])
+        ,("title",String "LatexRequest")
+        ,("type",String "object")
+])
+-}

@@ -1,0 +1,10 @@
+type: object
+title: LatexRequest
+required:
+  - ratio
+properties:
+  ratio: 
+    type: text
+    description: |
+      "Ratio written in a text form"
+    example: "1 - 3/4"

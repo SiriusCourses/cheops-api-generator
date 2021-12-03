@@ -1,0 +1,92 @@
+name:                config-generation
+version:             0.1.0.0
+github:              "githubuser/config-generation"
+license:             BSD3
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2021 Author name here"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/config-generation#readme>
+
+default-extensions: 
+- BangPatterns
+- GADTs
+- TypeApplications
+- TypeOperators
+- ScopedTypeVariables
+- StandaloneDeriving
+- OverloadedStrings
+- DerivingStrategies         
+- DerivingVia                
+- GeneralizedNewtypeDeriving 
+- TupleSections
+- LambdaCase
+
+dependencies:
+- base >= 4.9 && < 5
+- mtl
+- containers
+- template-haskell
+- aeson >= 2.0
+- yaml
+- libyaml
+- conduit
+- text
+- vector
+- bound
+- ghc-source-gen
+- ghc-paths
+- ghc
+- ghc-prim
+- directory
+- filepath
+- random
+- lens
+
+ghc-options:
+- -Wincomplete-patterns
+- -Wall
+- -Wcompat
+- -Wincomplete-record-updates
+- -Wredundant-constraints
+# - -fdefer-type-errors
+- -fshow-hole-constraints
+- -fno-show-valid-hole-fits
+- -fshow-docs-of-hole-fits
+- -frefinement-level-hole-fits=2
+
+library:
+  source-dirs: src
+
+executables:
+  config-generation-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - config-generation
+
+tests:
+  config-generation-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - config-generation

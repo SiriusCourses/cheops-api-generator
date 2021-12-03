@@ -1,0 +1,15 @@
+type: object
+title: LatexRequest
+required:
+  - ratio
+properties:
+  ratio: !include "./ratio.yaml"
+  glossary:
+    type: object
+    properties:
+      size:
+        type: number
+      name:
+        type: text
+      somthingelse:
+        type: number

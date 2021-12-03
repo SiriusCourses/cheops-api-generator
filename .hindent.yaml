@@ -1,0 +1,18 @@
+indent-size: 4
+line-length: 95
+force-trailing-newline: true
+line-breaks: [":>", ":<|>"]
+extensions:
+  - TemplateHaskell
+  - QuasiQuotes
+  - BangPatterns
+  - GADTs
+  - TypeApplications
+  - TypeOperators
+  - ScopedTypeVariables
+  - StandaloneDeriving
+  - OverloadedStrings
+  - TupleSections
+  - LambdaCase
+  - DerivingStrategies
+  - GeneralizedNewtypeDeriving

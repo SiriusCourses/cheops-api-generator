@@ -1,0 +1,207 @@
+{-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE TemplateHaskell            #-}
+
+module Lib where
+
+import Data.Yaml (Array, FromJSON (parseJSON), Object, Parser,
+                  Value (Array, Object, String), withObject, (.!=), (.:), (.:?))
+
+import           Data.Aeson.Key    (Key, toString)
+import qualified Data.Aeson.KeyMap as KM
+import           Data.Aeson.Types  (prependFailure, typeMismatch)
+
+import           Language.Haskell.TH (Dec, Q, Type)
+import qualified Language.Haskell.TH as TH
+
+import           Control.Monad    (join, when)
+import           Data.Foldable    (Foldable (toList))
+import           Data.Maybe       (fromJust, fromMaybe, isNothing)
+import qualified Data.Text        as T
+import           Data.Traversable (for)
+import qualified Data.Vector      as V
+
+-- import           System.IO
+data FieldTag
+    = ObjectTag
+    | NumberTag
+    | StringTag
+    | BooleanTag
+    | EnumTag
+    | NullTag
+
+typeFieldToFieldTag :: T.Text -> Maybe FieldTag
+typeFieldToFieldTag txt =
+    case txt of
+        "text"   -> Just StringTag
+        "object" -> Just ObjectTag
+        _        -> Nothing -- todo: add types
+
+newtype SchemeTypesProxy a =
+    SchemeTypes
+        { insides :: [a]
+        }
+    deriving newtype (Semigroup, Monoid, Functor, Applicative, Monad)
+
+type SchemeTypes = SchemeTypesProxy (Q (Maybe Dec, Type))
+
+parseTopLevel :: Object -> Maybe String -> Parser SchemeTypes
+parseTopLevel hm name = do
+    fieldTag <- typeFieldToFieldTag <$> hm .: "type"
+    when (isNothing fieldTag) $ fail "Type mismatch. Invalid type encountered."
+    typeName <- hm .:? "title" .!= fromMaybe "unnamed" name
+    case fromJust fieldTag of
+        NumberTag -> return . return . return $ (Nothing, TH.ConT $ TH.mkName "GHC.Types.Double")
+        StringTag -> return . return . return $ (Nothing, TH.ConT $ TH.mkName "Data.Text.Internal.Text")
+        BooleanTag -> return . return . return $ (Nothing, TH.ConT $ TH.mkName "GHC.Types.Bool")
+        NullTag -> return . return $ (\d -> (Just . head $ d, TH.ConT $ TH.mkName "Empty")) <$> [d| data Empty |]
+        EnumTag -> do
+            return $ undefined
+        ObjectTag -> do
+            properties <- hm .:? "properties" .!= (mempty :: Object) -- if "properties" field is not an Object everything will fail
+            required <- hm .:? "required" .!= (mempty :: Array)      -- if "reqiured" field is not an Array everything will fail
+            let parsedProps = KM.toAscList $ fmap parseProperty properties
+            return $ undefined
+
+parseProperty :: Value -> Parser SchemeTypes
+parseProperty hm = do
+    return $ undefined
+{-
+runQ [d|data Meh = Meh {one :: !Double, two :: !Exp}|]
+[
+    DataD
+        []
+        Meh_0
+        []
+        Nothing
+        [
+            RecC
+                Meh_1
+                [
+                    (
+                        one_2,
+                        Bang NoSourceUnpackedness SourceStrict,
+                        ConT GHC.Types.Double
+                    ),
+                    (
+                        two_3,
+                        Bang NoSourceUnpackedness SourceStrict,
+                        ConT Language.Haskell.TH.Syntax.Exp
+                    )
+                ]
+        ]
+        []
+]
+
+-}
+{-
+
+Вопросы:
+    - Какие поля тут бывают? Есть ли формальная спецификация этого дела?
+    - Каких типы(type) бывают кроме объектов(object), у всех ли он указан?
+    - У всех ли есть название(title), уникальные ли они?
+    - |
+        Какие свойства есть у полей кроме required?
+        Что нужно делать для тех, что не required?
+        Что делать если поле помечено как required, но его нет?
+
+То как я понимаю это должно сгенерироваться:
+
+---- latex-request-object.yaml (changed)
+
+type: object
+title: LatexRequest
+required:
+  - ratio
+properties:
+  ratio:
+    type: object
+    description: |
+      Дробь записанная текстом
+    example: "1 - 3/4"
+    properties:
+        q: "text"
+        p: "number"
+  nonRequiredFiled:
+    one : text
+    two : bool
+
+----- LatexRequest.hs
+
+module Generated.LatexRequest where
+
+RatioType = RatioType {
+    q :: Text
+    p :: Int
+}
+
+data LatexRequest = LatexRequest {
+    ratio :: RatioType,
+    nonRequiredField :: Maybe Text
+}
+
+Достигать это я пока планирую как-то так:
+
+  1. Распарсить в компайлтайме yaml
+  2. Сгенерировать по нему Q Dec
+  ....
+  Profit!
+
+
+-}
+{-
+runContT :: ContT r m a -> (a -> m r) -> m r
+cont     :: ((a -> m r) -> m r) -> ContT r m a
+
+instance Monad (ContT r m) where
+    (>>=) :: ContT r m a -> (a -> ConT r m b) -> ContT r m b
+    (>>=) cnt k = cont $ \bmr -> runContT cnt (\x -> runCont T (k x) bmr)
+
+    return :: a -> ContT r m a
+    return x = cont ( $ x)
+-}
+-- parseTopLevel :: Object -> Maybe String -> Parser SchemeTypes
+-- parseTopLevel hm name = do
+--     fieldTag <- typeFieldToFieldTag <$> hm .: "type"
+--     (title :: String) <- hm .:? "title" .!= fromMaybe "unnamed" name
+--     when (isNothing fieldTag) $ fail "Type mismatch. Invalid type encountered."
+--     (properties :: Maybe Value) <- hm .:? "properties"
+--     let propTypes :: Maybe (Parser SchemeTypes) = withObject "top-level" (parsePropertiesVia _req _parse_one_property ) <$> properties
+--     -- required are dropped, because I can not iterate over Object's keys.
+--     return . SchemeTypes $
+--         (case fromJust fieldTag of
+--              ObjectTag -> return . return . (\ts -> TH.DataD [] ''Meh [] Nothing [TH.RecC (undefined title) ts] []) $ (undefined :: [(TH.Name, TH.Bang, TH.Type)])
+--              -- return . return $ TH.DataD [] ''Meh [] Nothing [TH.RecC ''Meh [(_field_name_from_propTypes, TH.Bang TH.NoSourceUnpackedness TH.SourceStrict, _record_type_from_propTypes)]] []
+--              NumberTag -> _
+--              StringTag -> _
+--              BooleanTag -> _
+--              EnumTag -> _
+--              NullTag -> _)
+-- -- parsePropertiesVia :: (Object -> Parser SchemeTypes) -> Object -> Parser SchemeTypes
+-- parsePropertiesVia :: (String -> Object -> Parser (SchemeTypesProxy a)) -> [String] -> Object -> Parser (SchemeTypesProxy a)
+-- parsePropertiesVia f req (hm :: Object) =
+--     let parsed = map (\(k, v) -> withObject "property_name" (f . toString $ k) v) (KM.toAscList hm)
+--      in SchemeTypes . (insides =<<) <$> sequenceA parsed -- Will they all fail if one parser fails?
+-- data Meh
+-- meh :: (TH.Name, TH.Bang, TH.Type)
+-- meh = (''Meh, TH.Bang TH.NoSourceUnpackedness TH.SourceStrict, TH.ConT . TH.mkName $ "GHC.Types.Double")
+-- parseProperty :: Object -> Parser SchemeTypes
+-- parseProperty o = _
+-- instance FromJSON SchemeTypes where
+--     parseJSON (Object hm) = do
+--         (title :: Maybe T.Text) <- hm .:? "title"
+--         tag <- typeFieldToFieldTag =<< hm .: "type"
+--         (subfieldsTypes :: SchemeTypes) <- parseJSON =<< hm .: "properties"
+--         let myType :: SchemeTypes =
+--                 SchemeTypes . V.toList . V.singleton $ do
+--                     name <-
+--                         case title of
+--                             Nothing -> TH.newName "meh"
+--                             Just nm -> pure $ TH.mkName (T.unpack nm)
+--                     return $ TH.DataD [] name [] Nothing [TH.RecC name [(TH.mkName "meh_field", TH.Bang TH.NoSourceUnpackedness TH.SourceStrict, TH.ConT (TH.mkName "Double"))]] []
+--         return $ myType <> subfieldsTypes
+--     parseJSON (Array vec) = mconcat $ V.toList $ V.map (parseJSON :: Value -> Parser SchemeTypes) vec
+--     parseJSON (String _) = pure mempty -- ignore text fields
+--     parseJSON invalid = prependFailure "parsing scheme failed, " (typeMismatch "scheme field cannot contain this: " invalid)
