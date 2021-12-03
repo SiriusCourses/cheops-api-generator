@@ -125,50 +125,28 @@ properties:
 
 --ratio.yaml
 
-type: text
-description: |
-  "Ratio written in a text form"
-example: "1 - 3/4"
-
---some-array.yaml
-
-- one
-- two
-- three
-- bush
-- !include "./brush.yaml"
-- !include "./ratio.yaml"
-
---brush.yaml
-
-"brush"
+type: object
+title: ratio
+properties: 
+  num: 
+    type: number
+    haskell/type_info: "Int64"
+  denum: 
+    type: number
 
 --generated:
 
-Object (fromList [
-    ("properties",Object (fromList [
-        ("grossery",Array [
-            String "one",
-            String "two",
-            String "three",
-            String "bush",
-            String "brush",
-            Object (fromList [
-                ("description",String "\"Ratio written in a text form\"\n"),
-                ("example",String "1 - 3/4"),
-                ("haskell/origin",String "/root/src/config-generation/models/./ratio.yaml"),
-                ("type",String "text")
-            ])
-        ]),
-        ("ratio",Object (fromList [
-            ("description",String "\"Ratio written in a text form\"\n"),
-            ("example",String "1 - 3/4"),
-            ("haskell/origin",String "/root/src/config-generation/models/./ratio.yaml"),
-            ("type",String "text")
-        ]))
-    ])),
-    ("required",Array [String "ratio"]),
-    ("title",String "LatexRequest"),
-    ("type",String "object")
+module Generated where
+import qualified GHC.Types
+import qualified GHC.Int
+import qualified Data.Text
+data Glossary
+  = Glossary {name :: !Data.Text.Text,
+              size :: !GHC.Types.Int,
+              somthingelse :: !GHC.Types.Int}
+data LatexRequest
+  = LatexRequest {glossary :: !Glossary, ratio :: !Ratio}
+data Ratio
+  = Ratio {denum :: !GHC.Types.Int, num :: !Data.Int.Int64}
 ])
 -}

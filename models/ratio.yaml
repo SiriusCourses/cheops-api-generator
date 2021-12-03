@@ -1,7 +1,17 @@
 type: object
+title: ratio
 properties: 
   num: 
     type: number
     haskell/type_info: "Int64"
   denum: 
     type: number
+  lala:
+    type: object
+    title: lala
+    properties:
+      size: 
+        type: number
+      lenght:
+        type: string
+        haskell/type_info: "Int64"

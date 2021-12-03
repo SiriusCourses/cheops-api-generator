@@ -7,9 +7,10 @@ properties:
   glossary:
     type: object
     properties:
-      size:
+      size':
         type: number
       name:
         type: text
       somthingelse:
         type: number
+      nested_ratio: !include "./ratio.yaml"

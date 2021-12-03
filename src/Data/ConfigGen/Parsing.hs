@@ -7,7 +7,7 @@ module Data.ConfigGen.Parsing
 
 import Control.Lens               (makeLenses, (%~), (&), (.~), (<&>), (?~),
                                    (^.))
-import Control.Monad              (liftM2)
+import Control.Monad              (liftM2, when)
 import Control.Monad.State.Strict (StateT (StateT, runStateT), get, modify,
                                    withStateT)
 import Data.Foldable              (Foldable (foldl'), foldlM)
@@ -20,7 +20,7 @@ import           Data.Yaml         (Array, FromJSON (..), Object, Parser,
                                     Value (..), withArray, withText)
 
 import qualified Data.Bifunctor
-import           Data.Maybe     (catMaybes)
+import           Data.Maybe     (catMaybes, fromMaybe, isNothing, fromJust, isJust)
 import           Data.Set       (Set)
 import qualified Data.Set       as Set
 import           Data.String    (IsString (fromString))
@@ -34,6 +34,7 @@ import Control.Monad.Reader (MonadReader (ask), Reader)
 import Data.Char            (toLower, toUpper)
 import System.FilePath      (replaceExtension, splitDirectories)
 import System.Random        (randomIO)
+import Debug.Trace (trace)
 
 newtype Dependency =
     Dependency String
@@ -52,6 +53,10 @@ newtype NameSpace =
 appendToNameSpace :: String -> NameSpace -> NameSpace
 appendToNameSpace s (NameSpace ss) = NameSpace $ s : ss
 
+getNameSpaceHead :: NameSpace -> Maybe String
+getNameSpaceHead (NameSpace []) = Nothing
+getNameSpaceHead (NameSpace (s:_)) = Just s
+
 type DeclMap = KeyMap ModuleParts
 
 data ModuleParts =
@@ -60,6 +65,7 @@ data ModuleParts =
         , _structureType        :: HsType'
         , _externalDependencies :: DependencyTracker
         , _localDependencies    :: DeclMap
+        , _isLocal                :: Bool
         }
 
 data ParserState =
@@ -112,7 +118,7 @@ mergeDeps = fmergeDeps (\_ _ -> Nothing)
 
 instance FromJSON ParsedTypes where
     parseJSON (Object km) =
-        (uncurry ParsedTypes <$> runStateT (parseDispatch km) initialParserState) <&>
+        (uncurry ParsedTypes <$> runStateT (parseDispatch km Nothing) initialParserState) <&>
         (parsedModule . externalDependencies %~ removeSelf)
     parseJSON invalid =
         prependFailure
@@ -136,8 +142,8 @@ expectArray msg _ v = makeStateful $ prependFailure msg (typeMismatch "Array" v)
 
 -- todo: the rest
 -- Bool, Null and something else are missing but they are not used anywhere yet
-parseDispatch :: Object -> StatefulParse ModuleParts
-parseDispatch obj
+parseDispatch :: Object -> Maybe String -> StatefulParse ModuleParts
+parseDispatch obj name
     | Nothing <- KM.lookup "type" obj = failure "type field not found" $ Object obj
     | Just jsType <- KM.lookup "type" obj
     , jsType /= String "object" =
@@ -145,43 +151,52 @@ parseDispatch obj
     | Just origin <- KM.lookup "haskell/origin" obj = do
         oldNameSpace <- get <&> _nameSpace
         -- running on include with fresh namespace
-        withStateT (nameSpace .~ oldNameSpace) $
-            withStateT (nameSpace .~ mempty) (parseInclude origin)
-    | otherwise = do
-        title <- getTitleFromObject
-        parseRecordType obj title
-  where
-    parseInclude :: Value -> StatefulParse ModuleParts
-    parseInclude origin = do
-        uriKey <-
-            K.fromString . T.unpack <$>
-            expectString "parsing \"haskell/origin\" field" return origin
-        maybeTypePair <- KM.lookup uriKey . _cachedIncludes <$> get
-        (externalDependencies %~ addSelf (Dependency . K.toString $ uriKey)) <$>
-            case (maybeTypePair :: Maybe ModuleParts) of
-                Just typePair -> return typePair
-                Nothing -> do
-                    newTypePair <- parseRecordType obj =<< getTitleFromObject
-                    modify $ cachedIncludes %~ KM.insert uriKey newTypePair
-                    return newTypePair
-    getTitleFromObject :: StatefulParse String
-    getTitleFromObject = do
-        titleSource <-
-            makeStateful $
-            sequence
+        res <- withStateT (nameSpace .~ mempty) (parseInclude obj name origin)
+        modify $ nameSpace .~ oldNameSpace
+        return res
+    | otherwise = parseAnonymous obj name
+
+
+parseInclude :: Object -> Maybe String -> Value -> StatefulParse ModuleParts
+parseInclude obj name origin = do
+    uriKey <-
+        K.fromString . T.unpack <$>
+        expectString "parsing \"haskell/origin\" field" return origin
+    maybeTypePair <- KM.lookup uriKey . _cachedIncludes <$> get
+    (externalDependencies %~ addSelf (Dependency . K.toString $ uriKey)) <$>
+        case (maybeTypePair :: Maybe ModuleParts) of
+            Just typePair -> return typePair
+            Nothing -> do
+                title <- makeStateful $ getTitleFromObject obj name
+                modify $ nameSpace %~ appendToNameSpace title
+                newTypePair <- parseRecordType obj <&> isLocal .~ False
+                modify $ cachedIncludes %~ KM.insert uriKey newTypePair
+                return newTypePair
+
+parseAnonymous :: Object -> Maybe String -> StatefulParse ModuleParts
+parseAnonymous obj name = do
+    title <- makeStateful $ getTitleFromObject obj name
+    oldNameSpace <- get <&> _nameSpace
+    me <- withStateT (nameSpace %~ appendToNameSpace title) (parseRecordType obj)
+    modify $ nameSpace .~ oldNameSpace
+    return me
+
+getTitleFromObject :: Object -> Maybe String -> Parser String
+getTitleFromObject obj name = do
+    title <- fmap T.unpack <$> sequence
                 (withText "parsing of title failed. Should be text " return <$>
-                 KM.lookup "title" obj)
-        return $
-            case titleSource of
-                Nothing  -> "UntitledType_" ++ (show . abs $ unsafeName)
-                Just txt -> T.unpack txt
-      where
-        {-# NOINLINE unsafeName #-}
-        unsafeName = unsafePerformIO (randomIO :: IO Int)
+                KM.lookup "title" obj)
+    case (title, name) of
+        (Nothing, Nothing) -> fail $ "Either there is need to be a title or an external name. There are non here: " ++ show obj
+        (Just t, Nothing) -> return t
+        (Nothing, Just n) -> return n
+        (Just t, Just _) -> return t
+
+
 
 parsePrimitiveType :: Value -> Maybe Value -> Parser ModuleParts
 parsePrimitiveType (String jsType) Nothing =
-    (\t -> ModuleParts Nothing t emptyDep mempty) <$>
+    (\t -> ModuleParts Nothing t emptyDep mempty False) <$>
     case jsType of
         "scientific" -> return . var $ "GHC.Types.Int"
         "number"     -> return . var $ "GHC.Types.Int"
@@ -189,14 +204,14 @@ parsePrimitiveType (String jsType) Nothing =
         "string"     -> return . var $ "Data.Text.Text"
         invalid      -> fail $ "illigal string in type: " ++ T.unpack invalid
 parsePrimitiveType (String _) (Just (String typeInfo)) =
-    (\t -> ModuleParts Nothing t emptyDep mempty) <$>
+    (\t -> ModuleParts Nothing t emptyDep mempty False) <$>
     case typeInfo of
-        "Int64" -> return . var $ "Data.Int.Int64"
+        "Int64" -> return . var $ "GHC.Int.Int64"
         invalid -> fail $ "invalid haskell/type_info" ++ T.unpack invalid
 parsePrimitiveType _ _ = fail "jsType and haskell/type_info should both be strings"
 
-parseRecordType :: Object -> String -> StatefulParse ModuleParts
-parseRecordType obj name = do
+parseRecordType :: Object -> StatefulParse ModuleParts
+parseRecordType obj = do
     reqs <-
         makeStateful $
         maybe
@@ -211,17 +226,22 @@ parseRecordType obj name = do
                  (parseProps reqs))
             (KM.lookup "properties" obj)
     let fields = KM.toAscList $ strict . field . _structureType <$> properties
+    maybeName <- get <&> getNameSpaceHead . _nameSpace
+    when (isNothing maybeName) $ fail ( "while parsing record type encounterd an empty namespace. " ++ show obj )
+    let name = capitalizeFirstLetter . fromJust $ maybeName
     let recordCntr =
             recordCon (fromString name) $ Data.Bifunctor.first (fromString . K.toString) <$>
             fields
     let extDeps =
             foldl' (\acc d -> mergeDeps (d ^. externalDependencies) acc) emptyDep properties
+    let localDeps = KM.filter _isLocal properties
     return $
         ModuleParts
             (Just $ data' (fromString name) [] [recordCntr] [])
             (var $ fromString name)
             extDeps
-            mempty
+            localDeps
+            True
   where
     emptyProps :: [String] -> StatefulParse (KeyMap ModuleParts)
     emptyProps reqs'
@@ -243,38 +263,56 @@ parseRecordType obj name = do
 parseProps :: [String] -> Object -> StatefulParse (KeyMap ModuleParts)
 parseProps reqs props
     | all (\k -> K.fromString k `KM.member` props) reqs =
-        traverse
-            (expectObject
+        KM.traverseWithKey
+            (\k v -> expectObject
                  "parsing of JSON-scheme failed, each property must be an Object"
-                 parseDispatch)
+                 (`parseDispatch` (Just . K.toString $ k)) v)
             props
     | otherwise =
         failure
             "parsing of JSON-scheme failed, required list does not match content"
             (Object props)
 
+
 failure :: String -> Value -> StatefulParse a
 failure msg v = makeStateful $ prependFailure msg (typeMismatch "Parsed Types" v)
 
 createModule :: ParsedTypes -> HsModule'
 createModule pt =
-    let declMap = pt ^. parserState . cachedIncludes <&> _declaration
-        decls = catMaybes $ (pt ^. parsedModule . declaration) : (snd <$> KM.toAscList declMap)
-     in module' (Just "Generated") exports imports decls
+    let
+
+        locDeclMap = extractLocalDependencies (pt ^. parsedModule)
+        locDeclMapExt = KM.foldl' (\acc it -> acc <> extractLocalDependencies it) mempty (pt ^. parserState . cachedIncludes)
+        locDecl = (snd <$> KM.toList locDeclMapExt) <> (snd <$> KM.toList locDeclMap)
+        extDeclMap = pt ^. parserState . cachedIncludes <&> _declaration
+        extDecls = catMaybes $ (pt ^. parsedModule . declaration) : (snd <$> KM.toAscList extDeclMap)
+     in module' (Just "Generated") exports imports (locDecl ++ extDecls)
   where
     imports = qualified' <$> [import' "GHC.Types", import' "GHC.Int", import' "Data.Text"]
     exports = Nothing -- export everything?
 
-createModules :: ModuleParts -> Reader ParserState (KeyMap HsModule')
-createModules mp = do
-    depsPool <- ask <&> _cachedIncludes
-    let deps = mp ^. externalDependencies . dependancySet
-    return undefined
-  where
-    makeModuleNameOutOfPath :: FilePath -> String
-    makeModuleNameOutOfPath p =
-        let capitalizeFirstLetter x = toUpper (head x) : (toLower <$> tail x)
-         in mconcat $ capitalizeFirstLetter <$> (splitDirectories . replaceExtension ".hs" $ p)
+extractLocalDependencies :: ModuleParts -> KeyMap HsDecl'
+extractLocalDependencies mp =
+    let
+        locDeps = mp ^. localDependencies
+        baseCase = fromJust . _declaration <$> KM.filter (\mp' -> isJust $ mp' ^. declaration) locDeps
+        recursion = KM.foldl' (\acc v -> acc <> extractLocalDependencies v) mempty locDeps
+    in baseCase <> recursion
+
+capitalizeFirstLetter :: String -> String
+capitalizeFirstLetter [] = []
+capitalizeFirstLetter (x:xs) = toUpper x : xs
+
+-- createModules :: ModuleParts -> Reader ParserState (KeyMap HsModule')
+-- createModules mp = do
+--     depsPool <- ask <&> _cachedIncludes
+--     let deps = mp ^. externalDependencies . dependancySet
+--     return undefined
+--   where
+--     makeModuleNameOutOfPath :: FilePath -> String
+--     makeModuleNameOutOfPath p =
+--         let capitalizeFirstLetter x = toUpper (head x) : (toLower <$> tail x)
+--          in mconcat $ capitalizeFirstLetter <$> (splitDirectories . replaceExtension ".hs" $ p)
 {-
 ----------------------------------
 latex-request-object-inc.yaml
@@ -285,6 +323,15 @@ required:
   - ratio
 properties:
   ratio: !include "./ratio.yaml"
+  glossary:
+    type: object
+    properties:
+      size:
+        type: number
+      name:
+        type: text
+      somthingelse:
+        type: number
 
 ----------------------------------
 ratio.yaml
@@ -304,10 +351,12 @@ module Generated where
 import qualified GHC.Types
 import qualified GHC.Int
 import qualified Data.Text
+data Glossary
+  = Glossary {name :: !Data.Text.Text,
+              size :: !GHC.Types.Int,
+              somthingelse :: !GHC.Types.Int}
 data LatexRequest
-  = LatexRequest {ratio :: !UntitledType_3670921995040036773}
-data UntitledType_3670921995040036773
-  = UntitledType_3670921995040036773 {denum :: !GHC.Types.Int,
-                                      num :: !Data.Int.Int64}}
+  = LatexRequest {glossary :: !Glossary, ratio :: !Ratio}
+data Ratio = Ratio {denum :: !GHC.Types.Int, num :: !GHC.Int.Int64}
 
 -}
