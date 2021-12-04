@@ -20,7 +20,8 @@ import           Data.Yaml         (Array, FromJSON (..), Object, Parser,
                                     Value (..), withArray, withText)
 
 import qualified Data.Bifunctor
-import           Data.Maybe     (catMaybes, fromMaybe, isNothing, fromJust, isJust)
+import           Data.Maybe     (catMaybes, fromJust, fromMaybe, isJust,
+                                 isNothing)
 import           Data.Set       (Set)
 import qualified Data.Set       as Set
 import           Data.String    (IsString (fromString))
@@ -32,9 +33,9 @@ import GHC.SourceGen (HsDecl', HsModule', HsType', data', field, import',
 
 import Control.Monad.Reader (MonadReader (ask), Reader)
 import Data.Char            (toLower, toUpper)
+import Debug.Trace          (trace)
 import System.FilePath      (replaceExtension, splitDirectories)
 import System.Random        (randomIO)
-import Debug.Trace (trace)
 
 newtype Dependency =
     Dependency String
@@ -54,7 +55,7 @@ appendToNameSpace :: String -> NameSpace -> NameSpace
 appendToNameSpace s (NameSpace ss) = NameSpace $ s : ss
 
 getNameSpaceHead :: NameSpace -> Maybe String
-getNameSpaceHead (NameSpace []) = Nothing
+getNameSpaceHead (NameSpace [])    = Nothing
 getNameSpaceHead (NameSpace (s:_)) = Just s
 
 type DeclMap = KeyMap ModuleParts
@@ -65,7 +66,7 @@ data ModuleParts =
         , _structureType        :: HsType'
         , _externalDependencies :: DependencyTracker
         , _localDependencies    :: DeclMap
-        , _isLocal                :: Bool
+        , _isLocal              :: Bool
         }
 
 data ParserState =
@@ -156,7 +157,6 @@ parseDispatch obj name
         return res
     | otherwise = parseAnonymous obj name
 
-
 parseInclude :: Object -> Maybe String -> Value -> StatefulParse ModuleParts
 parseInclude obj name origin = do
     uriKey <-
@@ -183,16 +183,19 @@ parseAnonymous obj name = do
 
 getTitleFromObject :: Object -> Maybe String -> Parser String
 getTitleFromObject obj name = do
-    title <- fmap T.unpack <$> sequence
-                (withText "parsing of title failed. Should be text " return <$>
-                KM.lookup "title" obj)
+    title <-
+        fmap T.unpack <$>
+        sequence
+            (withText "parsing of title failed. Should be text " return <$>
+             KM.lookup "title" obj)
     case (title, name) of
-        (Nothing, Nothing) -> fail $ "Either there is need to be a title or an external name. There are non here: " ++ show obj
+        (Nothing, Nothing) ->
+            fail $
+            "Either there is need to be a title or an external name. There are non here: " ++
+            show obj
         (Just t, Nothing) -> return t
         (Nothing, Just n) -> return n
         (Just t, Just _) -> return t
-
-
 
 parsePrimitiveType :: Value -> Maybe Value -> Parser ModuleParts
 parsePrimitiveType (String jsType) Nothing =
@@ -227,7 +230,8 @@ parseRecordType obj = do
             (KM.lookup "properties" obj)
     let fields = KM.toAscList $ strict . field . _structureType <$> properties
     maybeName <- get <&> getNameSpaceHead . _nameSpace
-    when (isNothing maybeName) $ fail ( "while parsing record type encounterd an empty namespace. " ++ show obj )
+    when (isNothing maybeName) $
+        fail ("while parsing record type encounterd an empty namespace. " ++ show obj)
     let name = capitalizeFirstLetter . fromJust $ maybeName
     let recordCntr =
             recordCon (fromString name) $ Data.Bifunctor.first (fromString . K.toString) <$>
@@ -264,28 +268,32 @@ parseProps :: [String] -> Object -> StatefulParse (KeyMap ModuleParts)
 parseProps reqs props
     | all (\k -> K.fromString k `KM.member` props) reqs =
         KM.traverseWithKey
-            (\k v -> expectObject
-                 "parsing of JSON-scheme failed, each property must be an Object"
-                 (`parseDispatch` (Just . K.toString $ k)) v)
+            (\k v ->
+                 expectObject
+                     "parsing of JSON-scheme failed, each property must be an Object"
+                     (`parseDispatch` (Just . K.toString $ k))
+                     v)
             props
     | otherwise =
         failure
             "parsing of JSON-scheme failed, required list does not match content"
             (Object props)
 
-
 failure :: String -> Value -> StatefulParse a
 failure msg v = makeStateful $ prependFailure msg (typeMismatch "Parsed Types" v)
 
 createModule :: ParsedTypes -> HsModule'
 createModule pt =
-    let
-
-        locDeclMap = extractLocalDependencies (pt ^. parsedModule)
-        locDeclMapExt = KM.foldl' (\acc it -> acc <> extractLocalDependencies it) mempty (pt ^. parserState . cachedIncludes)
+    let locDeclMap = extractLocalDependencies (pt ^. parsedModule)
+        locDeclMapExt =
+            KM.foldl'
+                (\acc it -> acc <> extractLocalDependencies it)
+                mempty
+                (pt ^. parserState . cachedIncludes)
         locDecl = (snd <$> KM.toList locDeclMapExt) <> (snd <$> KM.toList locDeclMap)
         extDeclMap = pt ^. parserState . cachedIncludes <&> _declaration
-        extDecls = catMaybes $ (pt ^. parsedModule . declaration) : (snd <$> KM.toAscList extDeclMap)
+        extDecls =
+            catMaybes $ (pt ^. parsedModule . declaration) : (snd <$> KM.toAscList extDeclMap)
      in module' (Just "Generated") exports imports (locDecl ++ extDecls)
   where
     imports = qualified' <$> [import' "GHC.Types", import' "GHC.Int", import' "Data.Text"]
@@ -293,16 +301,15 @@ createModule pt =
 
 extractLocalDependencies :: ModuleParts -> KeyMap HsDecl'
 extractLocalDependencies mp =
-    let
-        locDeps = mp ^. localDependencies
-        baseCase = fromJust . _declaration <$> KM.filter (\mp' -> isJust $ mp' ^. declaration) locDeps
+    let locDeps = mp ^. localDependencies
+        baseCase =
+            fromJust . _declaration <$> KM.filter (\mp' -> isJust $ mp' ^. declaration) locDeps
         recursion = KM.foldl' (\acc v -> acc <> extractLocalDependencies v) mempty locDeps
-    in baseCase <> recursion
+     in baseCase <> recursion
 
 capitalizeFirstLetter :: String -> String
-capitalizeFirstLetter [] = []
+capitalizeFirstLetter []     = []
 capitalizeFirstLetter (x:xs) = toUpper x : xs
-
 -- createModules :: ModuleParts -> Reader ParserState (KeyMap HsModule')
 -- createModules mp = do
 --     depsPool <- ask <&> _cachedIncludes
