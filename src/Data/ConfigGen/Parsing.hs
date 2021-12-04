@@ -20,22 +20,17 @@ import           Data.Yaml         (Array, FromJSON (..), Object, Parser,
                                     Value (..), withArray, withText)
 
 import qualified Data.Bifunctor
-import           Data.Maybe     (catMaybes, fromJust, fromMaybe, isJust,
+import           Data.Maybe     (catMaybes, fromJust, isJust,
                                  isNothing)
 import           Data.Set       (Set)
 import qualified Data.Set       as Set
 import           Data.String    (IsString (fromString))
 import qualified Data.Text      as T
 
-import GHC.IO        (unsafePerformIO)
 import GHC.SourceGen (HsDecl', HsModule', HsType', data', field, import',
                       module', qualified', recordCon, strict, var)
 
-import Control.Monad.Reader (MonadReader (ask), Reader)
-import Data.Char            (toLower, toUpper)
-import Debug.Trace          (trace)
-import System.FilePath      (replaceExtension, splitDirectories)
-import System.Random        (randomIO)
+import Data.Char            (toUpper)
 
 newtype Dependency =
     Dependency String
