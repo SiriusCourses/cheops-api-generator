@@ -8,17 +8,17 @@ import Data.Foldable     (traverse_)
 
 import Data.Yaml (ParseException (..), YamlException (..), decodeHelper)
 
-import           Text.Libyaml (Event (..), Style (..), Tag (..))
 import qualified Text.Libyaml as Y
+import           Text.Libyaml (Event (..), Style (..), Tag (..))
 
 import           Conduit           (MonadIO (liftIO), MonadResource, await)
 import           Data.Conduit      (ConduitM, awaitForever, yield, (.|))
 import qualified Data.Conduit.List as CL
 
-import System.Directory   (canonicalizePath)
-import System.Environment (getArgs)
-import System.FilePath    (takeDirectory, (</>))
-import System.IO.Error    (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
+import           System.Directory   (canonicalizePath)
+import           System.Environment (getArgs)
+import           System.FilePath    (takeDirectory, (</>))
+import           System.IO.Error    (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
 
 import qualified Data.Text          as T
 import qualified Data.Text.Encoding as T
@@ -27,7 +27,9 @@ import GHC           (runGhc)
 import GHC.Paths     (libdir)
 import GHC.SourceGen (putPpr)
 
-import Data.ConfigGen.Parsing (ParsedTypes, createModule)
+import Data.ConfigGen.Parsing (ParserResult)
+import Data.Aeson (encode)
+
 -- meh
 -- constModule :: HsModule'
 -- constModule =
@@ -55,19 +57,16 @@ main = do
                 --  "/root/src/config-generation/models/latex-request-object.yaml"
                  filename)
     case content of
-        Left pe -> print pe
-        Right (_, Right v) ->
-            runGhc (Just libdir) . putPpr $ createModule (v :: ParsedTypes)
-        Right (_, Left e) -> print e
+        Left pe            -> print pe
+        Right (_, Right v) -> print (v :: ParserResult)
+         -- Data.ByteString.Lazy.putStr $ encode (v :: ParserResult)
+         -- runGhc (Just libdir) . putPpr $ createModule (v :: ParserTypes)
+        Right (_, Left e)  -> print e
 
 eventsFromFile :: MonadResource m => FilePath -> ConduitM i Event m ()
 eventsFromFile = go [] []
   where
-    go :: MonadResource m
-       => [Event]
-       -> [FilePath]
-       -> FilePath
-       -> ConduitM i Event m ()
+    go :: MonadResource m => [Event] -> [FilePath] -> FilePath -> ConduitM i Event m ()
     go injectedEvents seen fp = do
         cfp <- liftIO $ handleNotFound $ canonicalizePath fp
         when (cfp `elem` seen) $ liftIO $ throwIO CyclicIncludes
@@ -75,8 +74,7 @@ eventsFromFile = go [] []
             awaitForever $ \event ->
                 case event of
                     EventScalar f (UriTag "!include") _ _ -> do
-                        let includeFile =
-                                takeDirectory cfp </> T.unpack (T.decodeUtf8 f)
+                        let includeFile = takeDirectory cfp </> T.unpack (T.decodeUtf8 f)
                         let injectedEvents' =
                                 [ EventScalar "haskell/origin" NoTag Plain Nothing
                                 , EventScalar
@@ -88,8 +86,7 @@ eventsFromFile = go [] []
                         go injectedEvents' (cfp : seen) includeFile .|
                             CL.filter (`notElem` irrelevantEvents)
                     _ -> yield event
-    irrelevantEvents =
-        [EventStreamStart, EventDocumentStart, EventDocumentEnd, EventStreamEnd]
+    irrelevantEvents = [EventStreamStart, EventDocumentStart, EventDocumentEnd, EventStreamEnd]
     handleNotFound :: IO a -> IO a
     handleNotFound =
         handleJust
@@ -127,11 +124,11 @@ properties:
 
 type: object
 title: ratio
-properties: 
-  num: 
+properties:
+  num:
     type: number
     haskell/type_info: "Int64"
-  denum: 
+  denum:
     type: number
 
 --generated:
