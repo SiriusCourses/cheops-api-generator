@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module Data.ConfigGen.TypeRep
     ( TypeRef(.., ReferenceToExternalType, ReferenceToPrimitiveType)
@@ -16,13 +18,18 @@ import           Data.Aeson.Key    (Key)
 import           Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
 import           Data.Set          (Set)
+import           GHC.Generics      (Generic)
+
+import Data.Yaml (ToJSON)
 
 type ModuleName = String
+
 
 data TypeRef
     = ExtRef NonLocalRef
     | ReferenceToLocalType ModuleName
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+    deriving anyclass (ToJSON)
 
 pattern ReferenceToExternalType :: ModuleName -> TypeRef
 
@@ -38,23 +45,28 @@ pattern ReferenceToPrimitiveType s = ExtRef (RefPrimitiveType s)
 data NonLocalRef
     = RefPrimitiveType String
     | RefExternalType ModuleName
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+    deriving anyclass (ToJSON)
 
 data TypeRep
     = ProdType (KeyMap TypeRef)
     | SumType (KeyMap TypeRef)
-    | NewType String NonLocalRef
+    | ArrayType TypeRef
+    | NewType String TypeRep
     -- Here will go allOf, anyOf, oneOf
     | Ref NonLocalRef
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+    deriving anyclass (ToJSON)
 
+-- deriving instance Eq (m Int) => Eq (T m)
 appendToTypeRep :: TypeRep -> Key -> TypeRef -> TypeRep
 appendToTypeRep typeRep k tr =
     case typeRep of
-        ProdType km -> ProdType $ KM.insert k tr km
-        SumType km  -> SumType $ KM.insert k tr km
-        nt@(NewType _ _) -> nt
-        Ref tr'     -> Ref tr'
+        ProdType km       -> ProdType $ KM.insert k tr km
+        SumType km        -> SumType $ KM.insert k tr km
+        nt@(NewType _ _)  -> nt
+        arr@(ArrayType _) -> arr
+        Ref tr'           -> Ref tr'
 
 isLocal :: TypeRep -> Bool
 isLocal (ProdType _) = True
@@ -72,7 +84,8 @@ data ModuleParts =
         , _localDeps    :: KeyMap ModuleParts
         , _declaration  :: TypeRep
         }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+    deriving anyclass (ToJSON)
 
 getReference :: ModuleParts -> Maybe ModuleName
 getReference ModuleParts {_declaration = (Ref (RefExternalType s))} = Just s

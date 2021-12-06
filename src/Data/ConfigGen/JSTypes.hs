@@ -12,6 +12,7 @@ module Data.ConfigGen.JSTypes
 data TypeTag
     = Rec RecordLikeTag
     | Prim PrimitiveTag
+    | ArrayTag
 
 data PrimitiveTag
     = PrimStringTag
@@ -66,6 +67,7 @@ pattern RecordLike <- (isPrimitive -> False)
 {-# COMPLETE Primitive, RecordLike #-}
 
 parseTypeTag :: String -> Maybe TypeTag
+parseTypeTag "array"  = Just ArrayTag
 parseTypeTag "object" = Just ObjectTag
 parseTypeTag "enum"   = Just EnumTag
 parseTypeTag "number" = Just NumberTag

@@ -1,5 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module Data.ConfigGen.Parsing where
 
@@ -11,7 +13,7 @@ import           Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
 import           Data.Aeson.Types  (Key, prependFailure, typeMismatch)
 import           Data.Yaml         (Array, FromJSON (..), Object, Parser, Value (..), (.!=),
-                                    (.:), (.:?))
+                                    (.:), (.:?), ToJSON)
 
 import qualified Data.Bifunctor
 import           Data.Maybe     (fromMaybe)
@@ -23,13 +25,15 @@ import qualified Data.Text      as T
 import qualified Data.ConfigGen.JSTypes as JS
 import           Data.ConfigGen.TypeRep (ModuleParts (..))
 import qualified Data.ConfigGen.TypeRep as TR
+import GHC.Generics (Generic)
 
 newtype ParserState =
     ParserState
         { _cachedIncludes :: KeyMap ModuleParts
         }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
     deriving newtype (Semigroup, Monoid)
+    deriving anyclass (ToJSON)
 
 type StatefulParser a = StateT ParserState Parser a
 
@@ -38,7 +42,8 @@ data ParserResult =
         { mainType :: ModuleParts
         , deps     :: [(TR.ModuleName, ModuleParts)]
         }
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic)
+    deriving anyclass (ToJSON)
 
 makeLenses ''ModuleParts
 
@@ -91,6 +96,7 @@ parseDispatch obj = do
         -- here will go things for allOf, anyOf, oneOf
         (JS.Rec tag, Nothing)     -> parseRecordLike obj tag title
         (JS.Rec tag, Just origin) -> parseInclude obj (fromString origin) tag
+        (JS.ArrayTag, arrTitle)   -> parseArray obj arrTitle
 
 parseTypeInfo :: Object -> Parser (Maybe String)
 parseTypeInfo obj = obj .:? "haskell/type-info"
@@ -110,9 +116,27 @@ checkAdditionalPropertiesFlag obj = do
              False -> return ())
         maybeAdditionalProps
 
+parseArray :: Object -> Maybe Title -> StatefulParser ModuleParts
+parseArray obj maybeTitle = do
+    let newtypeWrapper = maybe id TR.NewType maybeTitle
+    let itemField = "items"
+    items <- parseDispatch =<< lift (obj .: itemField)
+    case items ^. declaration of
+        (TR.Ref (TR.RefExternalType s)) ->
+            return $
+            ModuleParts maybeTitle (Set.singleton s) mempty $
+            newtypeWrapper (TR.ArrayType (TR.ReferenceToExternalType s))
+        (TR.Ref (TR.RefPrimitiveType s)) ->
+            return $
+            ModuleParts maybeTitle mempty mempty $ TR.ArrayType (TR.ReferenceToPrimitiveType s)
+        _local ->
+            return $
+            ModuleParts maybeTitle mempty (KM.singleton itemField items) $
+            TR.ArrayType (TR.ReferenceToLocalType $ K.toString itemField)
+
 parsePrimitve :: JS.PrimitiveTag -> Maybe Title -> Maybe TypeInfo -> Parser ModuleParts
 parsePrimitve typeTag maybeTitle tInfo = do
-    let newtypeWrapper = maybe TR.Ref TR.NewType maybeTitle
+    let newtypeWrapper = maybe TR.Ref (\s -> TR.NewType s . TR.Ref) maybeTitle
     return .
         ModuleParts Nothing defaultExternalDeps mempty . newtypeWrapper . TR.RefPrimitiveType $
         case typeTag of
@@ -143,8 +167,8 @@ parseRecordLike obj typeTag title
         mapM (expectObject "failed to parse property to Object" parseDispatch) properties
     let initialTypeRep =
             case typeTag of
-                JS.RecEnumTag   -> TR.ProdType mempty
-                JS.RecObjectTag -> TR.SumType mempty
+                JS.RecEnumTag   -> TR.SumType mempty
+                JS.RecObjectTag -> TR.ProdType mempty
     return $
         KM.foldrWithKey
             appendRecord
@@ -232,6 +256,90 @@ ParserResult {
                 ("num",ExtRef (RefPrimitiveType "Int")
             )]
         )})
+    ]
+}
+-}
+{-
+ParserResult {
+    mainType = ModuleParts {
+        _jsTitle = Just "TokenResponseToken",
+        _externalDeps = fromList [],
+        _localDeps = fromList [],
+        _declaration = SumType (fromList [
+            ("token",ExtRef (RefPrimitiveType "Data.Text.Text"))
+        ])
+    },
+    deps = []}
+-}
+{-
+ParserResult {
+    mainType = ModuleParts {
+        _jsTitle = Just "DownloaderJobResponse", 
+        _externalDeps = fromList [], 
+        _localDeps = fromList [
+            ("DownloaderJobBatchContainer",ModuleParts {
+                _jsTitle = Just "DownloaderJobBatchContainer", 
+                _externalDeps = fromList [], 
+                _localDeps = fromList [], 
+                _declaration = SumType (fromList [
+                    ("id",ExtRef (RefPrimitiveType "Int"))
+                ])
+            }),
+            ("dialogue",ModuleParts {
+                _jsTitle = Nothing, 
+                _externalDeps = fromList [], 
+                _localDeps = fromList [
+                    ("items",ModuleParts {
+                        _jsTitle = Nothing, 
+                        _externalDeps = fromList [], 
+                        _localDeps = fromList [], 
+                        _declaration = SumType (fromList [])
+                    })
+                ], 
+                _declaration = ArrayType (ReferenceToLocalType "items")
+            }),
+            ("errors",ModuleParts {
+                _jsTitle = Nothing, 
+                _externalDeps = fromList [
+                    "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"
+                    ], 
+                _localDeps = fromList [], 
+                _declaration = ArrayType (ExtRef (RefExternalType "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"))
+            }),
+            ("warnings",ModuleParts {
+                _jsTitle = Nothing, 
+                _externalDeps = fromList [
+                    "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"
+                    ], 
+                _localDeps = fromList [], 
+                _declaration = ArrayType (ExtRef (RefExternalType "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"))
+            })
+        ], 
+        _declaration = SumType (fromList [
+            ("dialogue",ReferenceToLocalType "dialogue"),
+            ("errors",ReferenceToLocalType "errors"),
+            ("success",ReferenceToLocalType "DownloaderJobBatchContainer"),
+            ("warnings",ReferenceToLocalType "warnings")
+        ])
+    }, 
+    deps = [
+        ("/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml",ModuleParts {
+            _jsTitle = Just "ErrorItem", 
+            _externalDeps = fromList [], 
+            _localDeps = fromList [
+                ("params",ModuleParts {
+                    _jsTitle = Nothing, 
+                    _externalDeps = fromList [], 
+                    _localDeps = fromList [], 
+                    _declaration = SumType (fromList [])
+                })
+            ], 
+            _declaration = SumType (fromList [
+                ("key",ExtRef (RefPrimitiveType "Data.Text.Text")),
+                ("message",ExtRef (RefPrimitiveType "Data.Text.Text")),
+                ("params",ReferenceToLocalType "params")
+            ])
+        })
     ]
 }
 -}
