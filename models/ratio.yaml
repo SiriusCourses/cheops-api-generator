@@ -1,5 +1,6 @@
 type: object
 title: ratio
+additionalProperties: false
 properties: 
   num: 
     type: number

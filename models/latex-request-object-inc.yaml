@@ -1,5 +1,6 @@
 type: object
 title: LatexRequest
+additionalProperties: false
 required:
   - ratio
 properties:
@@ -11,6 +12,12 @@ properties:
         type: number
       name:
         type: text
-      somthingelse:
-        type: number
+      somethingelse:
+        type: object
+        additionalProperties: false
+        properties:
+          one: 
+            type: number
+          another:
+            type: text
       nested_ratio: !include "./ratio.yaml"
