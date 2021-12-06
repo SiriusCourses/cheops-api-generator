@@ -3,3 +3,4 @@
 api/
 models/
 test/Generated.hs
+config-generation.cabal
