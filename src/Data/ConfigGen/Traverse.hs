@@ -1,6 +1,8 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Data.ConfigGen.Traverse where
 
-import Control.Monad.Reader       (ReaderT, asks)
+import Control.Monad.Reader       (ReaderT, asks, withReaderT)
 import Control.Monad.State.Strict (StateT, modify)
 
 import Data.List (intersperse)
@@ -8,13 +10,17 @@ import Data.Set  (Set)
 import Util      (capitalise)
 
 import Data.ConfigGen.TypeRep (ModuleName, ModuleParts (ModuleParts), TypeRep)
-import GHC.SourceGen          (HsDecl', HsModule', HsType')
+import GHC.SourceGen          (HsDecl', HsModule', HsType', module')
 
 import qualified Data.Aeson.Key    as K
 import           Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
 
+import           Data.ConfigGen.Parsing       (Title)
 import qualified Data.ConfigGen.Traverse.Hylo as Hylo
+import qualified Data.Set                     as Set
+import           Data.String                  (fromString)
+import           Util                         (singleton)
 
 type ModulePrefix = [String]
 
@@ -54,14 +60,31 @@ breakDown (ModuleParts _jsTitle _externalDeps _localDeps _declaration)
     payload = Payload _jsTitle _externalDeps _declaration
 
 buildUp :: Hylo.Algebra (NodeF Payload) (Ctx (KeyMap HsModule'))
-buildUp (Leaf (Payload title externalDeps typeRep)) = do
-    namespace <- asks $ mconcat . intersperse "." . fmap capitalise
+buildUp (Leaf p@(Payload title externalDeps _)) = do
     modify $ buildExternalDeps externalDeps
-    return $ KM.singleton (K.fromString namespace) _
-buildUp (Local payload km) = do
-    built <- sequence $ _update_keys_with_prefix <$> km
-    modify $ buildExternalDeps (externalDeps payload)
-    return undefined
+    namespace <- asks $ mconcat . intersperse "." . fmap capitalise
+    let moduleName = makeModuleName title namespace
+    path <- asks $ K.fromString . _make_path_out_of_list_of_strings
+    return . KM.singleton path $ buildModule moduleName p
+buildUp (Local p@(Payload title externalDeps _) km) = do
+    built <-
+        fmap (KM.foldMapWithKey (\_ x -> x)) . sequence $
+        withReaderT _pass_proper_prefix <$> km
+    modify $ buildExternalDeps externalDeps
+    path <- asks $ K.fromString . _make_path_out_of_list_of_string
+    namespace <- asks $ mconcat . intersperse "." . fmap capitalise
+    let moduleName = makeModuleName title namespace
+    return . (<> built) . KM.singleton path $ buildModule moduleName p
+
+buildModule :: String -> Payload -> HsModule'
+buildModule name Payload {..} =
+    let exports = Nothing
+        imports = _ <$> Set.toList externalDeps
+        decls = singleton $ _ typeRep
+     in module' (Just . fromString $ name) exports imports decls
+
+makeModuleName :: Maybe Title -> String -> ModuleName
+makeModuleName title prefix = _append_in_proper_fashion
 
 buildExternalDeps :: Set ModuleName -> GeneratorState -> GeneratorState
 buildExternalDeps =
