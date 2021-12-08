@@ -58,7 +58,6 @@ data TypeRep
     deriving (Show, Eq, Generic)
     deriving anyclass (ToJSON)
 
--- deriving instance Eq (m Int) => Eq (T m)
 appendToTypeRep :: TypeRep -> Key -> TypeRef -> TypeRep
 appendToTypeRep typeRep k tr =
     case typeRep of

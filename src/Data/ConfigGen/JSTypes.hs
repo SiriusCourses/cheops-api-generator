@@ -14,6 +14,9 @@ data TypeTag
     | Prim PrimitiveTag
     | ArrayTag
 
+{-# COMPLETE ArrayTag, StringTag, NumberTag, BoolTag, NullTag,
+  ObjectTag, EnumTag #-}
+
 data PrimitiveTag
     = PrimStringTag
     | PrimNumberTag
@@ -51,6 +54,7 @@ pattern NullTag = Prim PrimNullTag
 isPrimitive :: TypeTag -> Bool
 isPrimitive ObjectTag = False
 isPrimitive EnumTag   = False
+isPrimitive ArrayTag  = False
 isPrimitive _         = True
 
 pattern Primitive :: TypeTag
@@ -60,9 +64,6 @@ pattern Primitive <- (isPrimitive -> True)
 pattern RecordLike :: TypeTag
 
 pattern RecordLike <- (isPrimitive -> False)
-
-{-# COMPLETE StringTag, NumberTag, BoolTag, NullTag, ObjectTag,
-  EnumTag #-}
 
 {-# COMPLETE Primitive, RecordLike #-}
 
