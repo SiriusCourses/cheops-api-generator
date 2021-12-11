@@ -1,7 +1,6 @@
-import Generated (MyInt)
+import Generated (LatexRequest)
 
 main :: IO ()
 main = putStrLn "Test suite not yet implemented"
 
-x :: MyInt
-x = 4
+-- x :: LatexRequest

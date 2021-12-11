@@ -7,7 +7,9 @@ data Glossary
   = Glossary {name :: !Data.Text.Text,
               nested_ratio :: !Ratio,
               size' :: !GHC.Types.Int,
-              somthingelse :: !GHC.Types.Int}
+              somуthingelse :: !Somуthingelse}
+data Somуthingelse
+  = Somуthingelse {another :: !Data.Text.Text, one :: !GHC.Types.Int}
 data LatexRequest
   = LatexRequest {glossary :: !Glossary, ratio :: !Ratio}
 data Ratio
