@@ -31,7 +31,8 @@ type ModulePrefix = [String]
 newtype GeneratorState =
     GeneratorState
         { includes :: KeyMap (Either ModuleParts HsModule')
-        } deriving newtype (Semigroup, Monoid)
+        }
+    deriving newtype (Semigroup, Monoid)
 
 instance Show GeneratorState where
     show (GeneratorState incs) =
@@ -95,8 +96,8 @@ extractFullPackageName (Just title) prefix =
 buildModule :: String -> Payload -> HsModule'
 buildModule name Payload {..} =
     let exports = Nothing
-        imports = import' . _ <$> Set.toList externalDeps
-        decls = singleton $ _ typeRep
+        imports = import' . undefined <$> Set.toList externalDeps
+        decls = singleton $ undefined typeRep
      in module' (Just . fromString $ name) exports imports decls
 
 buildExternalDeps :: [ModuleName] -> GeneratorState -> GeneratorState
@@ -118,8 +119,10 @@ buildExternalDeps modules modulePool =
                                   " got error" ++ s ++ ". Relevant context" ++ show modulePool
                               Right (res, state) ->
                                   GeneratorState .
-                                  (\t -> KM.insert (fromString m) t $ includes (state <> modulePool)) $
-                                  _??????_)
+                                  (\t ->
+                                       KM.insert (fromString m) t $
+                                       includes (state <> modulePool)) $
+                                  undefined)
                      Just (Right _) -> modulePool)
         modulePool
         modules
