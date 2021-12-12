@@ -1,4 +1,5 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE RecordWildCards           #-}
 
 module Main where
 
@@ -6,7 +7,7 @@ import Control.Exception (handleJust, throwIO)
 import Control.Monad     (guard, when)
 import Data.Foldable     (traverse_)
 
-import Data.Yaml (ParseException (..), YamlException (..), decodeHelper)
+import Data.Yaml (FromJSON, ParseException (..), YamlException (..), decodeHelper)
 
 import qualified Text.Libyaml as Y
 import           Text.Libyaml (Event (..), Style (..), Tag (..))
@@ -15,20 +16,30 @@ import           Conduit           (MonadIO (liftIO), MonadResource, await)
 import           Data.Conduit      (ConduitM, awaitForever, yield, (.|))
 import qualified Data.Conduit.List as CL
 
-import           System.Directory   (canonicalizePath)
-import           System.Environment (getArgs)
-import           System.FilePath    (takeDirectory, (</>))
-import           System.IO.Error    (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
+import System.Directory   (canonicalizePath)
+import System.Environment (getArgs)
+import System.FilePath    (takeDirectory, (</>))
+import System.IO.Error    (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
 
 import qualified Data.Text          as T
 import qualified Data.Text.Encoding as T
 
 import GHC           (runGhc)
 import GHC.Paths     (libdir)
-import GHC.SourceGen (putPpr)
+import GHC.SourceGen (HsModule', putPpr)
 
-import Data.ConfigGen.Parsing (ParserResult)
-import Data.Aeson (encode)
+import           Control.Lens.Internal.Coerce (coerce)
+import           Control.Monad.Except         (runExcept)
+import           Control.Monad.Reader         (ReaderT (runReaderT))
+import           Control.Monad.State.Strict   (StateT (runStateT))
+import qualified Data.Aeson.Key               as K
+import qualified Data.Aeson.KeyMap            as KM
+import           Data.Aeson.Types             (FromJSON (parseJSON))
+import qualified Data.Bifunctor
+import           Data.ConfigGen.Parsing       (ParserResult (..))
+import           Data.ConfigGen.Traverse      (Dep (ToBuild), GeneratorState (GeneratorState),
+                                               modulePartsToModules)
+import           Data.String                  (IsString (fromString))
 
 -- meh
 -- constModule :: HsModule'
@@ -48,6 +59,24 @@ import Data.Aeson (encode)
 --     int = var "GHC.Types.Int"
 -- main :: IO ()
 -- main = runGhc (Just libdir) $ putPpr constModule
+newtype GeneratedModules =
+    GeneratedModules
+        { unGeneratedModules :: [(String, HsModule')]
+        }
+
+instance FromJSON GeneratedModules where
+    parseJSON v = do
+        ParserResult mainType deps <- parseJSON @ParserResult v
+        let q =
+                runExcept $
+                runStateT (runReaderT (modulePartsToModules mainType) []) $
+                GeneratorState . KM.fromList $ Data.Bifunctor.bimap fromString ToBuild <$> deps
+        res <-
+            case q of
+                Left s          -> fail s
+                Right (res', _) -> return res'
+        return . coerce $ Data.Bifunctor.first K.toString <$> KM.toList res
+
 main :: IO ()
 main = do
     filename <- head <$> getArgs
@@ -57,11 +86,12 @@ main = do
                 --  "/root/src/config-generation/models/latex-request-object.yaml"
                  filename)
     case content of
-        Left pe            -> print pe
-        Right (_, Right v) -> print (v :: ParserResult)
+        Left pe -> print pe
+        Right (_, Right (v :: GeneratedModules)) ->
+            traverse_ (\t -> runGhc (Just libdir) $ putPpr t) (unGeneratedModules v)
          -- Data.ByteString.Lazy.putStr $ encode (v :: ParserResult)
          -- runGhc (Just libdir) . putPpr $ createModule (v :: ParserTypes)
-        Right (_, Left e)  -> print e
+        Right (_, Left e) -> print e
 
 eventsFromFile :: MonadResource m => FilePath -> ConduitM i Event m ()
 eventsFromFile = go [] []

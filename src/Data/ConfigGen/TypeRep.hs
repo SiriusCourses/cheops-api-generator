@@ -1,9 +1,10 @@
+{-# LANGUAGE DeriveAnyClass  #-}
 {-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE DeriveAnyClass #-}
 
 module Data.ConfigGen.TypeRep
-    ( TypeRef(.., ReferenceToExternalType, ReferenceToPrimitiveType)
+    ( TypeRef(.., ReferenceToExternalType, ReferenceToPrimitiveType,
+        ReferenceToLocalType)
     , TypeRep(..)
     , ModuleParts(..)
     , NonLocalRef(..)
@@ -12,6 +13,7 @@ module Data.ConfigGen.TypeRep
     , isLocal
     , getReference
     , isExtDep
+    , getNameFromReference
     ) where
 
 import           Data.Aeson.Key    (Key)
@@ -24,12 +26,23 @@ import Data.Yaml (ToJSON)
 
 type ModuleName = String
 
-
 data TypeRef
     = ExtRef NonLocalRef
-    | ReferenceToLocalType ModuleName
+    | LocRef LocalReference
     deriving (Show, Eq, Generic)
     deriving anyclass (ToJSON)
+
+newtype LocalReference =
+    LocalReference
+        { unLocalRef :: ModuleName
+        }
+    deriving (Generic)
+    deriving newtype (Show, Eq)
+    deriving anyclass (ToJSON)
+
+pattern ReferenceToLocalType :: ModuleName -> TypeRef
+
+pattern ReferenceToLocalType nm = LocRef (LocalReference nm)
 
 pattern ReferenceToExternalType :: ModuleName -> TypeRef
 
@@ -42,6 +55,11 @@ pattern ReferenceToPrimitiveType s = ExtRef (RefPrimitiveType s)
 {-# COMPLETE ReferenceToLocalType, ReferenceToExternalType,
   ReferenceToPrimitiveType #-}
 
+getNameFromReference :: TypeRef -> String
+getNameFromReference (ReferenceToLocalType s) = s
+getNameFromReference (ReferenceToExternalType s) = s
+getNameFromReference (ReferenceToPrimitiveType s) = s
+
 data NonLocalRef
     = RefPrimitiveType String
     | RefExternalType ModuleName
@@ -52,7 +70,7 @@ data TypeRep
     = ProdType (KeyMap TypeRef)
     | SumType (KeyMap TypeRef)
     | ArrayType TypeRef
-    | NewType String TypeRep
+    | NewType String TypeRef
     -- Here will go allOf, anyOf, oneOf
     | Ref NonLocalRef
     deriving (Show, Eq, Generic)

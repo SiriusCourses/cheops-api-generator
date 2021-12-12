@@ -1,7 +1,7 @@
+{-# LANGUAGE DeriveAnyClass  #-}
+{-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
 
 module Data.ConfigGen.Parsing where
 
@@ -12,8 +12,8 @@ import qualified Data.Aeson.Key    as K (toString)
 import           Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
 import           Data.Aeson.Types  (Key, prependFailure, typeMismatch)
-import           Data.Yaml         (Array, FromJSON (..), Object, Parser, Value (..), (.!=),
-                                    (.:), (.:?), ToJSON)
+import           Data.Yaml         (Array, FromJSON (..), Object, Parser, ToJSON, Value (..),
+                                    (.!=), (.:), (.:?))
 
 import qualified Data.Bifunctor
 import           Data.Maybe     (fromMaybe)
@@ -25,7 +25,7 @@ import qualified Data.Text      as T
 import qualified Data.ConfigGen.JSTypes as JS
 import           Data.ConfigGen.TypeRep (ModuleParts (..))
 import qualified Data.ConfigGen.TypeRep as TR
-import GHC.Generics (Generic)
+import           GHC.Generics           (Generic)
 
 newtype ParserState =
     ParserState
@@ -82,7 +82,7 @@ expectArray _ f (Array o) = f o
 expectArray msg _ v       = lift $ prependFailure msg (typeMismatch "Array" v)
 
 defaultExternalDeps :: Set TR.ModuleName
-defaultExternalDeps = Set.fromList ["GHC.Types", "GHC.Int", "Data.Text"]
+defaultExternalDeps = Set.fromList ["GHC.Types", "GHC.Int", "Data.Text", "Data.Vector"]
 
 parseDispatch :: Object -> StatefulParser ModuleParts
 parseDispatch obj = do
@@ -118,14 +118,14 @@ checkAdditionalPropertiesFlag obj = do
 
 parseArray :: Object -> Maybe Title -> StatefulParser ModuleParts
 parseArray obj maybeTitle = do
-    let newtypeWrapper = maybe id TR.NewType maybeTitle
     let itemField = "items"
+    -- todo: think about newtype
     items <- parseDispatch =<< lift (obj .: itemField)
     case items ^. declaration of
         (TR.Ref (TR.RefExternalType s)) ->
             return $
             ModuleParts maybeTitle (Set.singleton s) mempty $
-            newtypeWrapper (TR.ArrayType (TR.ReferenceToExternalType s))
+            (TR.ArrayType (TR.ReferenceToExternalType s))
         (TR.Ref (TR.RefPrimitiveType s)) ->
             return $
             ModuleParts maybeTitle mempty mempty $ TR.ArrayType (TR.ReferenceToPrimitiveType s)
@@ -136,7 +136,7 @@ parseArray obj maybeTitle = do
 
 parsePrimitve :: JS.PrimitiveTag -> Maybe Title -> Maybe TypeInfo -> Parser ModuleParts
 parsePrimitve typeTag maybeTitle tInfo = do
-    let newtypeWrapper = maybe TR.Ref (\s -> TR.NewType s . TR.Ref) maybeTitle
+    let newtypeWrapper = maybe TR.Ref (\s -> TR.NewType s . TR.ExtRef) maybeTitle
     return .
         ModuleParts Nothing defaultExternalDeps mempty . newtypeWrapper . TR.RefPrimitiveType $
         case typeTag of
@@ -274,66 +274,66 @@ ParserResult {
 {-
 ParserResult {
     mainType = ModuleParts {
-        _jsTitle = Just "DownloaderJobResponse", 
-        _externalDeps = fromList [], 
+        _jsTitle = Just "DownloaderJobResponse",
+        _externalDeps = fromList [],
         _localDeps = fromList [
             ("DownloaderJobBatchContainer",ModuleParts {
-                _jsTitle = Just "DownloaderJobBatchContainer", 
-                _externalDeps = fromList [], 
-                _localDeps = fromList [], 
+                _jsTitle = Just "DownloaderJobBatchContainer",
+                _externalDeps = fromList [],
+                _localDeps = fromList [],
                 _declaration = SumType (fromList [
                     ("id",ExtRef (RefPrimitiveType "Int"))
                 ])
             }),
             ("dialogue",ModuleParts {
-                _jsTitle = Nothing, 
-                _externalDeps = fromList [], 
+                _jsTitle = Nothing,
+                _externalDeps = fromList [],
                 _localDeps = fromList [
                     ("items",ModuleParts {
-                        _jsTitle = Nothing, 
-                        _externalDeps = fromList [], 
-                        _localDeps = fromList [], 
+                        _jsTitle = Nothing,
+                        _externalDeps = fromList [],
+                        _localDeps = fromList [],
                         _declaration = SumType (fromList [])
                     })
-                ], 
+                ],
                 _declaration = ArrayType (ReferenceToLocalType "items")
             }),
             ("errors",ModuleParts {
-                _jsTitle = Nothing, 
+                _jsTitle = Nothing,
                 _externalDeps = fromList [
                     "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"
-                    ], 
-                _localDeps = fromList [], 
+                    ],
+                _localDeps = fromList [],
                 _declaration = ArrayType (ExtRef (RefExternalType "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"))
             }),
             ("warnings",ModuleParts {
-                _jsTitle = Nothing, 
+                _jsTitle = Nothing,
                 _externalDeps = fromList [
                     "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"
-                    ], 
-                _localDeps = fromList [], 
+                    ],
+                _localDeps = fromList [],
                 _declaration = ArrayType (ExtRef (RefExternalType "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"))
             })
-        ], 
+        ],
         _declaration = SumType (fromList [
             ("dialogue",ReferenceToLocalType "dialogue"),
             ("errors",ReferenceToLocalType "errors"),
             ("success",ReferenceToLocalType "DownloaderJobBatchContainer"),
             ("warnings",ReferenceToLocalType "warnings")
         ])
-    }, 
+    },
     deps = [
         ("/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml",ModuleParts {
-            _jsTitle = Just "ErrorItem", 
-            _externalDeps = fromList [], 
+            _jsTitle = Just "ErrorItem",
+            _externalDeps = fromList [],
             _localDeps = fromList [
                 ("params",ModuleParts {
-                    _jsTitle = Nothing, 
-                    _externalDeps = fromList [], 
-                    _localDeps = fromList [], 
+                    _jsTitle = Nothing,
+                    _externalDeps = fromList [],
+                    _localDeps = fromList [],
                     _declaration = SumType (fromList [])
                 })
-            ], 
+            ],
             _declaration = SumType (fromList [
                 ("key",ExtRef (RefPrimitiveType "Data.Text.Text")),
                 ("message",ExtRef (RefPrimitiveType "Data.Text.Text")),
