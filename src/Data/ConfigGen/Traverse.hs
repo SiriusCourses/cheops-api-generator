@@ -74,18 +74,19 @@ breakDown (ModuleParts _jsTitle _externalDeps _localDeps _declaration)
 
 buildUp :: Hylo.Algebra (NodeF Payload) (Ctx (KeyMap HsModule'))
 buildUp (Leaf p@(Payload title externalDeps _)) = do
-    traverse_ buildExternalDep $ (Set.toList externalDeps)
+    extDeps <- mconcat <$> (traverse buildExternalDep $ (Set.toList externalDeps))
     path <- asks $ K.fromString . extractPath title
     (fullModuleName, declName) <- asks $ extractFullPackageName title
-    return . KM.singleton path $ buildModule fullModuleName declName p
+    return . (<> extDeps) . KM.singleton path $ buildModule fullModuleName declName p
 buildUp (Local p@(Payload title externalDeps _) km) = do
     built <-
         fmap (KM.foldl' (<>) mempty) . sequence $
         KM.fromMap . M.mapWithKey (withReaderT . (\k mp -> K.toString k : mp)) . KM.toMap $ km
-    traverse_ buildExternalDep $ (Set.toList externalDeps)
+    extDeps <- mconcat <$> (traverse buildExternalDep $ (Set.toList externalDeps))
     path <- asks $ K.fromString . extractPath title
     (fullModuleName, declName) <- asks $ extractFullPackageName title
-    return . (<> built) . KM.singleton path $ buildModule fullModuleName declName p
+    return . (<> extDeps) . (<> built) . KM.singleton path $
+        buildModule fullModuleName declName p
 
 extractPath :: Maybe Title -> ModulePrefix -> FilePath
 extractPath Nothing prefix = (foldl' (</>) mempty . reverse $ prefix) <.> "hs"
