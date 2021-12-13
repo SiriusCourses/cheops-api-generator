@@ -1,37 +1,37 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Data.ConfigGen.Traverse where
+module Data.ConfigGen.Traverse
+    ( modulePartsToModules
+    ) where
 
+import Control.Monad.Except       (Except, MonadError (..))
 import Control.Monad.Reader       (MonadReader (..), ReaderT (..), asks, local, withReaderT)
 import Control.Monad.State.Strict (MonadState (..), StateT (..), modify)
 
-import Data.List (foldl', intersperse)
-import Data.Set  (Set)
-import Util      (capitalise, singleton, split)
-
-import Data.ConfigGen.TypeRep (ModuleName, ModuleParts (ModuleParts), TypeRep)
-import GHC.SourceGen          (App ((@@)), HsDecl', HsModule', ImportDecl', Var (var), data',
-                               field, import', module', newtype', prefixCon, qualified',
-                               recordCon, strict, type')
+import           Data.Bifunctor  (bimap)
+import qualified Data.Bifunctor
+import           Data.Coerce     (coerce)
+import           Data.List       (foldl', intersperse)
+import qualified Data.Map.Strict as M
+import           Data.Maybe      (catMaybes)
+import           Data.Set        (Set)
+import qualified Data.Set        as Set
+import           Data.String     (fromString)
+import           System.FilePath ((<.>), (</>))
+import           Util            (capitalise, singleton, split)
 
 import qualified Data.Aeson.Key    as K
 import           Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
 
-import           Control.Monad.Except         (Except, MonadError (throwError))
 import           Data.ConfigGen.Parsing       (Title)
 import qualified Data.ConfigGen.Traverse.Hylo as Hylo
-import qualified Data.Map.Strict              as M
-import qualified Data.Set                     as Set
-import           Data.String                  (fromString)
-import           System.FilePath              ((<.>), (</>))
+import           Data.ConfigGen.TypeRep       (ModuleName, ModuleParts (ModuleParts), TypeRep)
+import qualified Data.ConfigGen.TypeRep       as TR
 
-import           Data.Bifunctor         (bimap)
-import qualified Data.Bifunctor
-import           Data.Coerce            (coerce)
-import qualified Data.ConfigGen.TypeRep as TR
-import           Data.Maybe             (catMaybes, fromJust, isJust)
-import           Data.Text              (Text)
+import GHC.SourceGen (App ((@@)), HsDecl', HsModule', ImportDecl', Var (var), data', field,
+                      import', module', newtype', prefixCon, qualified', recordCon, strict,
+                      type')
 
 type ModulePrefix = [String]
 
