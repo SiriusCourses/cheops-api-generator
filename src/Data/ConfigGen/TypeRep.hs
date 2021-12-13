@@ -8,6 +8,7 @@ module Data.ConfigGen.TypeRep
     , TypeRep(..)
     , ModuleParts(..)
     , NonLocalRef(..)
+    , LocalReference(..)
     , ModuleName
     , appendToTypeRep
     , isLocal

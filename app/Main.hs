@@ -40,6 +40,7 @@ import           Data.ConfigGen.Parsing       (ParserResult (..))
 import           Data.ConfigGen.Traverse      (Dep (ToBuild), GeneratorState (GeneratorState),
                                                modulePartsToModules)
 import           Data.String                  (IsString (fromString))
+import qualified Data.Text                    as Text
 
 -- meh
 -- constModule :: HsModule'
@@ -88,7 +89,13 @@ main = do
     case content of
         Left pe -> print pe
         Right (_, Right (v :: GeneratedModules)) ->
-            traverse_ (\t -> runGhc (Just libdir) $ putPpr t) (unGeneratedModules v)
+            traverse_
+                (\(nm, md) -> do
+                     print nm
+                     putStrLn ""
+                     runGhc (Just libdir) $ putPpr md
+                     putStrLn "")
+                (Data.Bifunctor.first Text.pack <$> unGeneratedModules v)
          -- Data.ByteString.Lazy.putStr $ encode (v :: ParserResult)
          -- runGhc (Just libdir) . putPpr $ createModule (v :: ParserTypes)
         Right (_, Left e) -> print e
@@ -140,6 +147,25 @@ eventsFromFile = go [] []
                 yield one'
                 -- recourse on yourself
                 conduitInjector els
+{-
+(LatexRequest.hs,
+ module LatexRequest where
+ import /Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml
+ data LatexRequest
+   = LatexRequest {glossary :: glossary,
+                   ratio :: /Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml})
+([glossary.hs],
+ module Glossary where
+ import /Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml
+ data glossary
+   = glossary {name :: Data.Text.Text,
+               nested_ratio :: /Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml,
+               size' :: Int,
+               somethingelse :: somethingelse})
+([glossary/somethingelse.hs],
+ module Glossary.Somethingelse where
+ data glossary = glossary {another :: Data.Text.Text, one :: Int})
+-}
 {-
 -- latex-request-object-inc.yaml
 type: object
