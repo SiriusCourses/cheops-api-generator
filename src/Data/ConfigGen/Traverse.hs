@@ -1,8 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Data.ConfigGen.Traverse
-    ( modulePartsToModules
-    ) where
+module Data.ConfigGen.Traverse where
 
 import Control.Monad.Except       (Except, MonadError (..))
 import Control.Monad.Reader       (MonadReader (..), ReaderT (..), asks, local, withReaderT)
