@@ -158,7 +158,7 @@ buildModule pkgName declName Payload {..} =
             var . fromString . ((pkgName ++ ".") ++) . capitalise . TR.getNameFromReference $
             tr'
     go (TR.ArrayType tr) =
-        (, []) $
+        (, [import' . fromString . capitalise . TR.getNameFromReference $ tr]) $
         type' (fromString declName) [] $
         var "Data.Vector.Vector" @@
         (var . fromString . capitalise . TR.getNameFromReference $ tr)
