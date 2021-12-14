@@ -15,7 +15,7 @@ import           Data.Maybe      (catMaybes)
 import           Data.Set        (Set)
 import qualified Data.Set        as Set
 import           Data.String     (fromString)
-import           System.FilePath ((<.>), (</>))
+import           System.FilePath (dropExtension, (<.>), (</>))
 import           Util            (capitalise, singleton, split)
 
 import qualified Data.Aeson.Key    as K
@@ -27,13 +27,16 @@ import qualified Data.ConfigGen.Traverse.Hylo as Hylo
 import           Data.ConfigGen.TypeRep       (ModuleName, ModuleParts (ModuleParts), TypeRep)
 import qualified Data.ConfigGen.TypeRep       as TR
 
-import GHC.SourceGen (App ((@@)), HsDecl', HsModule', ImportDecl', Var (var), data', field,
-                      import', module', newtype', prefixCon, qualified', recordCon, strict,
-                      type')
+import Data.Function ((&))
+import GHC.SourceGen (App ((@@)), Field, HsDecl', HsModule', ImportDecl', Var (var), data',
+                      field, import', module', newtype', prefixCon, qualified', recordCon,
+                      strict, type')
 
 type ModulePrefix = [String]
 
 type PackageName = String
+
+type DeclName = String
 
 data Dep a
     = Built
@@ -102,21 +105,32 @@ extractPath Nothing prefix = (foldl' (</>) mempty . reverse $ prefix) <.> "hs"
 extractPath (Just title) prefix =
     (foldl' (</>) mempty . reverse . drop 1 $ prefix) </> capitalise title <.> "hs"
 
-extractFullPackageName :: Maybe Title -> ModulePrefix -> (PackageName, String)
+extractFullPackageName :: Maybe Title -> ModulePrefix -> (PackageName, DeclName)
 extractFullPackageName Nothing prefix =
-    (mconcat . intersperse "." . reverse $ prefix, last prefix) -- <- here will be an error if top level package has no title
+    (mconcat . intersperse "." . reverse $ prefix, head prefix) -- <- here will be an error if top level package has no title
 extractFullPackageName (Just title) prefix =
-    (mconcat . intersperse "." $ reverse (capitalise title : drop 1 prefix), capitalise title)
+    ( mconcat . intersperse "." $ reverse (capitalise title : drop 1 prefix)
+    , capitalise $ title)
 
 pathToModuleName :: String -> String
-pathToModuleName s = mconcat . intersperse "." $ capitalise <$> split '/' s
+pathToModuleName s = (mconcat . intersperse "." $ capitalise <$> split '/' s) & dropExtension
 
-buildModule :: PackageName -> String -> Payload -> HsModule'
+-- It might be fairly easy to analyse TypeRef for primitive ref usage and then there will be no need for this.
+defaultImports :: [ImportDecl']
+defaultImports =
+    qualified' . import' . fromString <$> ["GHC.Types", "GHC.Int", "Data.Text", "Data.Vector"]
+
+buildModule :: PackageName -> DeclName -> Payload -> HsModule'
 buildModule pkgName declName Payload {..} =
     let exports = Nothing
-        extImports = import' . fromString <$> Set.toList externalDeps
+        extImports =
+            qualified' . import' . fromString . pathToModuleName <$> Set.toList externalDeps
         (decls, locImports) = Data.Bifunctor.first singleton $ go typeRep
-     in module' (Just . fromString $ pkgName) exports (extImports <> locImports) decls
+     in module'
+            (Just . fromString $ pkgName)
+            exports
+            (extImports <> locImports <> defaultImports)
+            decls
   where
     go :: TypeRep -> (HsDecl', [ImportDecl'])
     go tr
@@ -148,33 +162,60 @@ buildModule pkgName declName Payload {..} =
             typeRefToLocalDeps (TR.LocRef lr) =
                 Just . qualified' . import' . fromString $
                 pkgName ++ "." ++ (capitalise $ TR.unLocalRef lr)
-        fieldFromReference tr'@(TR.ExtRef _) =
-            strict . field . var . fromString . capitalise . TR.getNameFromReference $ tr'
+        fieldFromReference :: TR.TypeRef -> Field
+        fieldFromReference tr'@(TR.ExtRef r) =
+            strict .
+            field .
+            var .
+            fromString .
+            capitalise .
+            (case r of
+                 (TR.RefPrimitiveType _) -> id
+                 (TR.RefExternalType _)  -> TR.importToExportedType . dropExtension) .
+            TR.getNameFromReference $
+            tr'
         fieldFromReference tr'@(TR.LocRef _) =
             strict .
             field .
-            var . fromString . ((pkgName ++ ".") ++) . capitalise . TR.getNameFromReference $
+            var .
+            fromString .
+            ((pkgName ++ ".") ++) .
+            capitalise . TR.importToExportedType . TR.getNameFromReference $
             tr'
     go (TR.ArrayType tr) =
-        (, [import' . fromString . capitalise . TR.getNameFromReference $ tr]) $
+        (case tr of
+             TR.ExtRef _ -> (, [])
+             TR.LocRef _ ->
+                 (, [import' . fromString . capitalise . TR.getNameFromReference $ tr])) $
         type' (fromString declName) [] $
         var "Data.Vector.Vector" @@
-        (var . fromString . capitalise . TR.getNameFromReference $ tr)
-    go (TR.NewType newtypeName nlr) =
-        (, []) $
-        newtype'
-            (fromString newtypeName)
-            []
-            (recordCon constructorName [(fieldName, fieldType)])
-            []
+        (var .
+         fromString .
+         capitalise .
+         TR.importToExportedType .
+         (case tr of
+              TR.ReferenceToExternalType _ -> dropExtension
+              _                            -> id) .
+         TR.getNameFromReference $
+         tr)
+    go (TR.NewType newtypeName tr) =
+        (, []) $ newtype' typeName [] (recordCon constructorName [(fieldName, fieldType)]) []
       where
         typeName = fromString . capitalise $ newtypeName
         constructorName = typeName
-        fieldName = fromString $ "un" ++ newtypeName
+        fieldName = fromString $ "un" ++ (capitalise newtypeName)
         fieldType =
-            strict . field . var $ fromString . capitalise . TR.getNameFromReference $ nlr
+            field . var $
+            fromString .
+            capitalise .
+            (case tr of
+                 TR.ExtRef (TR.RefPrimitiveType _) -> id
+                 TR.ExtRef (TR.RefExternalType _)  -> TR.importToExportedType
+                 TR.LocRef _                       -> TR.importToExportedType) .
+            TR.getNameFromReference $
+            tr
     go (TR.Ref (TR.RefPrimitiveType s)) =
-        (, []) $ -- <- maybe here should be a local import of primitive type
+        (, []) $
         type'
             (fromString declName)
             []
@@ -184,7 +225,8 @@ buildModule pkgName declName Payload {..} =
         type'
             (fromString declName)
             []
-            ((var . fromString $ declName) @@ (var . fromString . capitalise $ mn))
+            ((var . fromString $ declName) @@
+             (var . fromString . capitalise . TR.importToExportedType $ (mn & dropExtension)))
 
 buildExternalDep :: ModuleName -> Ctx (KeyMap HsModule')
 buildExternalDep moduleName = do

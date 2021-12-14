@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass  #-}
 {-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Data.ConfigGen.TypeRep
     ( TypeRef(.., ReferenceToExternalType, ReferenceToPrimitiveType,
@@ -15,8 +16,10 @@ module Data.ConfigGen.TypeRep
     , getReference
     , isExtDep
     , getNameFromReference
+    , importToExportedType
     ) where
 
+import           Control.Lens      (makeLenses)
 import           Data.Aeson.Key    (Key)
 import           Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
@@ -24,6 +27,7 @@ import           Data.Set          (Set)
 import           GHC.Generics      (Generic)
 
 import Data.Yaml (ToJSON)
+import Util      (split, capitalise)
 
 type ModuleName = String
 
@@ -57,8 +61,8 @@ pattern ReferenceToPrimitiveType s = ExtRef (RefPrimitiveType s)
   ReferenceToPrimitiveType #-}
 
 getNameFromReference :: TypeRef -> String
-getNameFromReference (ReferenceToLocalType s) = s
-getNameFromReference (ReferenceToExternalType s) = s
+getNameFromReference (ReferenceToLocalType s)     = s
+getNameFromReference (ReferenceToExternalType s)  = s
 getNameFromReference (ReferenceToPrimitiveType s) = s
 
 data NonLocalRef
@@ -105,6 +109,11 @@ data ModuleParts =
     deriving (Show, Eq, Generic)
     deriving anyclass (ToJSON)
 
+makeLenses ''ModuleParts
+
 getReference :: ModuleParts -> Maybe ModuleName
 getReference ModuleParts {_declaration = (Ref (RefExternalType s))} = Just s
 getReference _                                                      = Nothing
+
+importToExportedType :: ModuleName -> String
+importToExportedType mn = mn ++ "." ++ (capitalise . last $ split '.' mn)

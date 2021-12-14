@@ -9,10 +9,9 @@ properties:
     type: number
   lala:
     type: object
-    title: lala
+    title: notlala
     properties:
-      size: 
-        type: number
+      size: !include "./brush.yaml"
       lenght:
         type: string
         haskell/type_info: "Int64"

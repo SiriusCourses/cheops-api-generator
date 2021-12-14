@@ -5,7 +5,7 @@
 
 module Data.ConfigGen.Parsing where
 
-import Control.Lens               (makeLenses, (%~), (<&>), (^.))
+import Control.Lens               (makeLenses, (%~), (&), (.~), (<&>), (^.))
 import Control.Monad.State.Strict (MonadTrans (lift), StateT (runStateT), get, modify)
 
 import qualified Data.Aeson.Key    as K (toString)
@@ -16,16 +16,17 @@ import           Data.Yaml         (Array, FromJSON (..), Object, Parser, ToJSON
                                     (.!=), (.:), (.:?))
 
 import qualified Data.Bifunctor
-import           Data.Maybe     (fromMaybe)
-import           Data.Set       (Set)
+import           Data.Maybe     (fromJust, fromMaybe)
 import qualified Data.Set       as Set
 import           Data.String    (IsString (fromString))
 import qualified Data.Text      as T
 
-import qualified Data.ConfigGen.JSTypes as JS
-import           Data.ConfigGen.TypeRep (ModuleParts (..))
-import qualified Data.ConfigGen.TypeRep as TR
-import           GHC.Generics           (Generic)
+import qualified Data.ConfigGen.JSTypes      as JS
+import qualified Data.ConfigGen.Traverse.LCP as LCP
+import           Data.ConfigGen.TypeRep      (ModuleParts (..))
+import qualified Data.ConfigGen.TypeRep      as TR
+import           Data.List                   (stripPrefix)
+import           GHC.Generics                (Generic)
 
 newtype ParserState =
     ParserState
@@ -58,7 +59,8 @@ type Title = String
 type Properties = Object
 
 instance FromJSON ParserResult where
-    parseJSON (Object obj) = makeParserResult <$> runStateT (parseDispatch obj) mempty
+    parseJSON (Object obj) =
+        postprocessParserResult . makeParserResult <$> runStateT (parseDispatch obj) mempty
       where
         makeParserResult :: (ModuleParts, ParserState) -> ParserResult
         makeParserResult (mainType, ps) =
@@ -81,18 +83,15 @@ expectArray :: forall a. String -> (Array -> StatefulParser a) -> Value -> State
 expectArray _ f (Array o) = f o
 expectArray msg _ v       = lift $ prependFailure msg (typeMismatch "Array" v)
 
-defaultExternalDeps :: Set TR.ModuleName
-defaultExternalDeps = Set.fromList ["GHC.Types", "GHC.Int", "Data.Text", "Data.Vector"]
-
 parseDispatch :: Object -> StatefulParser ModuleParts
 parseDispatch obj = do
     (maybeJsTypeTag :: Maybe JS.TypeTag) <- lift $ JS.parseTypeTag <$> (obj .: "type")
     (maybeOrigin :: Maybe String) <- lift $ obj .:? "haskell/origin"
     jsTypeTag <- maybe (fail $ "Found incorect type here: " ++ show obj) return maybeJsTypeTag
     title <- lift $ parseTitle obj
-    typeInfo <- lift $ parseTitle obj
+    typeInfo <- lift $ parseTypeInfo obj
     case (jsTypeTag, maybeOrigin) of
-        (JS.Prim tag, _)          -> lift $ parsePrimitve tag title typeInfo
+        (JS.Prim tag, _)          -> parsePrimitve tag title typeInfo maybeOrigin
         -- here will go things for allOf, anyOf, oneOf
         (JS.Rec tag, Nothing)     -> parseRecordLike obj tag title
         (JS.Rec tag, Just origin) -> parseInclude obj (fromString origin) tag
@@ -134,16 +133,31 @@ parseArray obj maybeTitle = do
             ModuleParts maybeTitle mempty (KM.singleton itemField items) $
             TR.ArrayType (TR.ReferenceToLocalType $ K.toString itemField)
 
-parsePrimitve :: JS.PrimitiveTag -> Maybe Title -> Maybe TypeInfo -> Parser ModuleParts
-parsePrimitve typeTag maybeTitle tInfo = do
-    let newtypeWrapper = maybe TR.Ref (\s -> TR.NewType s . TR.ExtRef) maybeTitle
-    return .
-        ModuleParts Nothing defaultExternalDeps mempty . newtypeWrapper . TR.RefPrimitiveType $
+parsePrimitve ::
+       JS.PrimitiveTag
+    -> Maybe Title
+    -> Maybe TypeInfo
+    -> Maybe String
+    -> StatefulParser ModuleParts
+parsePrimitve typeTag maybeTitle tInfo Nothing = do
+    let newtypeWrapper =
+            case maybeTitle of
+                Just s  -> (\nlr -> TR.NewType s . TR.ExtRef $ nlr)
+                Nothing -> (\nlr -> TR.Ref nlr)
+    return . ModuleParts maybeTitle mempty mempty . newtypeWrapper . TR.RefPrimitiveType $
         case typeTag of
             JS.PrimStringTag -> fromMaybe "Data.Text.Text" tInfo
             JS.PrimNumberTag -> fromMaybe "Int" tInfo
             JS.PrimBoolTag   -> "Bool"
             JS.PrimNullTag   -> "()"
+parsePrimitve typeTag maybeTitle tInfo (Just origin) = do
+    maybeCachedIncldue <- fmap (KM.lookup . fromString $ origin) $ get <&> _cachedIncludes
+    case maybeCachedIncldue of
+        Nothing -> do
+            res <- parsePrimitve typeTag maybeTitle tInfo Nothing
+            modify $ cachedIncludes %~ (KM.insert . fromString $ origin) res
+        Just _ -> return ()
+    return . ModuleParts maybeTitle mempty mempty . TR.Ref . TR.RefExternalType $ origin
 
 parseInclude :: Object -> Key -> JS.RecordLikeTag -> StatefulParser ModuleParts
 parseInclude obj origin typeTag = do
@@ -154,8 +168,7 @@ parseInclude obj origin typeTag = do
             res <- parseRecordLike obj typeTag title
             modify $ cachedIncludes %~ KM.insert origin res
         Just _ -> return ()
-    return . ModuleParts Nothing mempty mempty . TR.Ref . TR.RefExternalType $
-        K.toString origin
+    return . ModuleParts title mempty mempty . TR.Ref . TR.RefExternalType $ K.toString origin
 
 parseRecordLike :: Object -> JS.RecordLikeTag -> Maybe Title -> StatefulParser ModuleParts
 parseRecordLike obj typeTag title
@@ -198,148 +211,34 @@ parseRecordLike obj typeTag title
         if all (`KM.member` properties) reqs
             then return properties
             else fail $ "There are some fields that are required but not present: " ++ show obj
-{-
-ParserResult {
-    mainType = ModuleParts {
-        _jsTitle = Just "LatexRequest",
-        _externalDeps = fromList [
-            "/Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml"
-        ],
-        _localDeps = fromList [
-            ("glossary",ModuleParts {
-                _jsTitle = Nothing,
-                _externalDeps = fromList [
-                    "/Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml"
-                ],
-                _localDeps = fromList [
-                    ("som\1091thingelse",ModuleParts {
-                        _jsTitle = Nothing,
-                        _externalDeps = fromList [],
-                        _localDeps = fromList [],
-                        _declaration = SumType (fromList [
-                            ("another",ExtRef (RefPrimitiveType "Data.Text.Text")),
-                            ("one",ExtRef (RefPrimitiveType "Int"))
-                        ])
-                    })
-                ],
-                _declaration = SumType (fromList [
-                    ("name",ExtRef (RefPrimitiveType "Data.Text.Text")),
-                    ("nested_ratio",ExtRef (RefExternalType "/Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml")),
-                    ("size'",ExtRef (RefPrimitiveType "Int")),
-                    ("som\1091thingelse",ReferenceToLocalType "som\1091thingelse")
-                ])
-            })
-        ],
-        _declaration = SumType (fromList [
-            ("glossary",ReferenceToLocalType "glossary"),
-            ("ratio",ExtRef (RefExternalType "/Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml"))
-        ])
-    },
-    deps = [
-        ("/Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml", ModuleParts {
-            _jsTitle = Just "ratio",
-            _externalDeps = fromList [],
-            _localDeps = fromList [
-                ("lala",ModuleParts {
-                    _jsTitle = Just "lala",
-                    _externalDeps = fromList [],
-                    _localDeps = fromList [],
-                    _declaration = SumType (fromList [
-                        ("lenght",ExtRef (RefPrimitiveType "Data.Text.Text")),
-                        ("size",ExtRef (RefPrimitiveType "Int"))
-                    ])
-                })
-            ],
-            _declaration = SumType (fromList [
-                ("denum",ExtRef (RefPrimitiveType "Int")),
-                ("lala",ReferenceToLocalType "lala"),
-                ("num",ExtRef (RefPrimitiveType "Int")
-            )]
-        )})
-    ]
-}
--}
-{-
-ParserResult {
-    mainType = ModuleParts {
-        _jsTitle = Just "TokenResponseToken",
-        _externalDeps = fromList [],
-        _localDeps = fromList [],
-        _declaration = SumType (fromList [
-            ("token",ExtRef (RefPrimitiveType "Data.Text.Text"))
-        ])
-    },
-    deps = []}
--}
-{-
-ParserResult {
-    mainType = ModuleParts {
-        _jsTitle = Just "DownloaderJobResponse",
-        _externalDeps = fromList [],
-        _localDeps = fromList [
-            ("DownloaderJobBatchContainer",ModuleParts {
-                _jsTitle = Just "DownloaderJobBatchContainer",
-                _externalDeps = fromList [],
-                _localDeps = fromList [],
-                _declaration = SumType (fromList [
-                    ("id",ExtRef (RefPrimitiveType "Int"))
-                ])
-            }),
-            ("dialogue",ModuleParts {
-                _jsTitle = Nothing,
-                _externalDeps = fromList [],
-                _localDeps = fromList [
-                    ("items",ModuleParts {
-                        _jsTitle = Nothing,
-                        _externalDeps = fromList [],
-                        _localDeps = fromList [],
-                        _declaration = SumType (fromList [])
-                    })
-                ],
-                _declaration = ArrayType (ReferenceToLocalType "items")
-            }),
-            ("errors",ModuleParts {
-                _jsTitle = Nothing,
-                _externalDeps = fromList [
-                    "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"
-                    ],
-                _localDeps = fromList [],
-                _declaration = ArrayType (ExtRef (RefExternalType "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"))
-            }),
-            ("warnings",ModuleParts {
-                _jsTitle = Nothing,
-                _externalDeps = fromList [
-                    "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"
-                    ],
-                _localDeps = fromList [],
-                _declaration = ArrayType (ExtRef (RefExternalType "/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml"))
-            })
-        ],
-        _declaration = SumType (fromList [
-            ("dialogue",ReferenceToLocalType "dialogue"),
-            ("errors",ReferenceToLocalType "errors"),
-            ("success",ReferenceToLocalType "DownloaderJobBatchContainer"),
-            ("warnings",ReferenceToLocalType "warnings")
-        ])
-    },
-    deps = [
-        ("/Users/frogofjuly/Documents/Haskell/src/config-generation/api/smt-api-spec/api/common/schema/downloader/../response/error-object.yaml",ModuleParts {
-            _jsTitle = Just "ErrorItem",
-            _externalDeps = fromList [],
-            _localDeps = fromList [
-                ("params",ModuleParts {
-                    _jsTitle = Nothing,
-                    _externalDeps = fromList [],
-                    _localDeps = fromList [],
-                    _declaration = SumType (fromList [])
-                })
-            ],
-            _declaration = SumType (fromList [
-                ("key",ExtRef (RefPrimitiveType "Data.Text.Text")),
-                ("message",ExtRef (RefPrimitiveType "Data.Text.Text")),
-                ("params",ReferenceToLocalType "params")
-            ])
-        })
-    ]
-}
--}
+
+postprocessParserResult :: ParserResult -> ParserResult
+postprocessParserResult pr@(ParserResult _ []) = pr
+postprocessParserResult pr@(ParserResult _ [_]) = pr
+postprocessParserResult (ParserResult mp incs) =
+    ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . stripPathPrefix lcp) go <$> incs
+  where
+    lcp = LCP.commonPrefix $ fst <$> incs
+    stripPathPrefix = stripPrefix
+    -- It is just wrong!
+    -- example: paths = [root/m_la.yaml, root/m_lu.yaml]
+    -- example: lcp = LCP.commonPrefix paths
+    -- example: stripPrefix lcp <$> paths = [a.yaml, u.yaml]
+    go :: ModuleParts -> ModuleParts
+    go mp'
+        | TR.ProdType km <- tr = mpu' & declaration .~ (TR.ProdType $ mapTypeRef <$> km)
+        | TR.SumType km <- tr = mpu' & declaration .~ (TR.SumType $ mapTypeRef <$> km)
+        | TR.ArrayType tr' <- tr = mpu' & declaration .~ (TR.ArrayType $ mapTypeRef tr')
+        | TR.NewType s tr' <- tr = mpu' & declaration .~ (TR.NewType s $ mapTypeRef tr')
+        | TR.Ref nltr <- tr = mpu' & declaration .~ (TR.Ref $ mapNonLocalRef nltr)
+      where
+        tr = _declaration mp'
+        mpu = mp' & externalDeps %~ Set.map (\x -> fromJust $ stripPathPrefix lcp x)
+        mpu' = mpu & localDeps %~ fmap go
+    mapNonLocalRef :: TR.NonLocalRef -> TR.NonLocalRef
+    mapNonLocalRef tr
+        | TR.RefExternalType s <- tr = TR.RefExternalType $ fromJust $ stripPathPrefix lcp s
+        | otherwise = tr
+    mapTypeRef :: TR.TypeRef -> TR.TypeRef
+    mapTypeRef (TR.ExtRef nlr) = TR.ExtRef $ mapNonLocalRef nlr
+    mapTypeRef r               = r

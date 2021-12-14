@@ -8,10 +8,13 @@ properties:
   glossary:
     type: object
     properties:
-      size':
+      size:
         type: number
       name:
         type: text
+      content: 
+        type: array
+        items: !include "./brush.yaml"
       somethingelse:
         type: object
         additionalProperties: false
