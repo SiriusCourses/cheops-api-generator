@@ -7,7 +7,7 @@ module Data.ConfigGen.TypeRep
     ( TypeRef(.., ReferenceToExternalType, ReferenceToPrimitiveType,
         ReferenceToLocalType)
     , TypeRep(..)
-    , ModuleParts(..)
+    , ModuleParts(.., declaration, externalDeps, localDeps, jsTitle)
     , NonLocalRef(..)
     , LocalReference(..)
     , ModuleName
@@ -27,7 +27,7 @@ import           Data.Set          (Set)
 import           GHC.Generics      (Generic)
 
 import Data.Yaml (ToJSON)
-import Util      (split, capitalise)
+import Util      (capitalise, split)
 
 type ModuleName = String
 
