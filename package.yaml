@@ -67,7 +67,9 @@ ghc-options:
 - -frefinement-level-hole-fits=2
 
 library:
-  source-dirs: src
+  source-dirs: 
+  - src
+  - generated
 
 executables:
   config-generation-exe:
