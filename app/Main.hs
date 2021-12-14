@@ -42,24 +42,6 @@ import           Data.ConfigGen.Traverse      (Dep (ToBuild), GeneratorState (Ge
 import           Data.String                  (IsString (fromString))
 import qualified Data.Text                    as Text
 
--- meh
--- constModule :: HsModule'
--- constModule =
---     module'
---         (Just "Generated")
---         (Just [var "meh", var "MyInt"])
---         (qualified' <$> [import' "GHC.Types", import' "GHC.Int", import' "Data.Text"])
---         [ typeSig "meh" $ a --> b --> a
---         , funBind "meh" $ match [x, wildP] x
---         , type' "MyInt" [] int
---         ]
---   where
---     a = var "a"
---     b = var "b"
---     x = bvar "x"
---     int = var "GHC.Types.Int"
--- main :: IO ()
--- main = runGhc (Just libdir) $ putPpr constModule
 newtype GeneratedModules =
     GeneratedModules
         { unGeneratedModules :: [(String, HsModule')]
@@ -67,7 +49,7 @@ newtype GeneratedModules =
 
 instance FromJSON GeneratedModules where
     parseJSON v = do
-        ParserResult mainType deps <- parseJSON @ParserResult v
+        p@(ParserResult mainType deps) <- parseJSON @ParserResult v
         let q =
                 runExcept $
                 runStateT (runReaderT (modulePartsToModules mainType) []) $
@@ -81,11 +63,7 @@ instance FromJSON GeneratedModules where
 main :: IO ()
 main = do
     filename <- head <$> getArgs
-    content <-
-        decodeHelper
-            (eventsFromFile
-                --  "/root/src/config-generation/models/latex-request-object.yaml"
-                 filename)
+    content <- decodeHelper (eventsFromFile filename)
     case content of
         Left pe -> print pe
         Right (_, Right (v :: GeneratedModules)) ->
@@ -96,8 +74,6 @@ main = do
                      runGhc (Just libdir) $ putPpr md
                      putStrLn "")
                 (Data.Bifunctor.first Text.pack <$> unGeneratedModules v)
-         -- Data.ByteString.Lazy.putStr $ encode (v :: ParserResult)
-         -- runGhc (Just libdir) . putPpr $ createModule (v :: ParserTypes)
         Right (_, Left e) -> print e
 
 eventsFromFile :: MonadResource m => FilePath -> ConduitM i Event m ()
@@ -135,7 +111,6 @@ eventsFromFile = go [] []
     conduitInjector :: (Monad m) => [Event] -> ConduitM Event Event m ()
     conduitInjector els = do
         one <- await
-        -- liftIO . print $ "incoming: " ++ show one
         case one of
             Nothing -> return ()
             Just one'@EventMappingStart {} -> do
@@ -147,59 +122,3 @@ eventsFromFile = go [] []
                 yield one'
                 -- recourse on yourself
                 conduitInjector els
-{-
-(LatexRequest.hs,
- module LatexRequest where
- import /Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml
- data LatexRequest
-   = LatexRequest {glossary :: glossary,
-                   ratio :: /Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml})
-([glossary.hs],
- module Glossary where
- import /Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml
- data glossary
-   = glossary {name :: Data.Text.Text,
-               nested_ratio :: /Users/frogofjuly/Documents/Haskell/src/config-generation/models/./ratio.yaml,
-               size' :: Int,
-               somethingelse :: somethingelse})
-([glossary/somethingelse.hs],
- module Glossary.Somethingelse where
- data glossary = glossary {another :: Data.Text.Text, one :: Int})
--}
-{-
--- latex-request-object-inc.yaml
-type: object
-title: LatexRequest
-required:
-  - ratio
-properties:
-  ratio: !include "./ratio.yaml"
-  grossery: !include "./some-array.yaml"
-
---ratio.yaml
-
-type: object
-title: ratio
-properties:
-  num:
-    type: number
-    haskell/type_info: "Int64"
-  denum:
-    type: number
-
---generated:
-
-module Generated where
-import qualified GHC.Types
-import qualified GHC.Int
-import qualified Data.Text
-data Glossary
-  = Glossary {name :: !Data.Text.Text,
-              size :: !GHC.Types.Int,
-              somthingelse :: !GHC.Types.Int}
-data LatexRequest
-  = LatexRequest {glossary :: !Glossary, ratio :: !Ratio}
-data Ratio
-  = Ratio {denum :: !GHC.Types.Int, num :: !Data.Int.Int64}
-])
--}
