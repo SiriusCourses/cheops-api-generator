@@ -27,6 +27,7 @@ import           Data.ConfigGen.TypeRep      (ModuleParts (..))
 import qualified Data.ConfigGen.TypeRep      as TR
 import           Data.List                   (stripPrefix)
 import           GHC.Generics                (Generic)
+import System.FilePath (takeFileName)
 
 newtype ParserState =
     ParserState
@@ -214,7 +215,7 @@ parseRecordLike obj typeTag title
 
 postprocessParserResult :: ParserResult -> ParserResult
 postprocessParserResult pr@(ParserResult _ []) = pr
-postprocessParserResult pr@(ParserResult _ [_]) = pr
+postprocessParserResult (ParserResult s [x]) = ParserResult s $ [Data.Bifunctor.first takeFileName x]
 postprocessParserResult (ParserResult mp incs) =
     ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . stripPathPrefix lcp) go <$> incs
   where

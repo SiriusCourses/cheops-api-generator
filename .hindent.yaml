@@ -16,3 +16,5 @@ extensions:
   - LambdaCase
   - DerivingStrategies
   - GeneralizedNewtypeDeriving
+  - DeriveGeneric
+  - DataKinds

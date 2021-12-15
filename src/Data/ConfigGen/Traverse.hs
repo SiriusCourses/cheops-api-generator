@@ -107,7 +107,10 @@ extractPath (Just title) prefix =
 
 extractFullPackageName :: Maybe Title -> ModulePrefix -> (PackageName, DeclName)
 extractFullPackageName Nothing prefix =
-    (mconcat . intersperse "." . reverse $ prefix, head prefix) -- <- here will be an error if top level package has no title
+    (mconcat . intersperse "." . reverse $ prefix, takeHeadOrFail prefix) -- <- here will be an error if top level package has no title
+  where
+    takeHeadOrFail (x:_) = x
+    takeHeadOrFail _      = "Unnamed" -- error "Prefix is emtpy, no Name to give"
 extractFullPackageName (Just title) prefix =
     ( mconcat . intersperse "." $ reverse (capitalise title : drop 1 prefix)
     , capitalise $ title)
