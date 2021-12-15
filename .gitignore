@@ -1,7 +1,6 @@
 .stack-work/
 *~
 api/*
-models/*
 drafts/*
 test/Generated.hs
 config-generation.cabal
