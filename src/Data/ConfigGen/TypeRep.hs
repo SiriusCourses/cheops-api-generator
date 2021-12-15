@@ -7,7 +7,11 @@ module Data.ConfigGen.TypeRep
     ( TypeRef(.., ReferenceToExternalType, ReferenceToPrimitiveType,
         ReferenceToLocalType)
     , TypeRep(..)
-    , ModuleParts(.., declaration, externalDeps, localDeps, jsTitle)
+    , ModuleParts(..)
+    , declaration
+    , externalDeps
+    , localDeps
+    , jsTitle
     , NonLocalRef(..)
     , LocalReference(..)
     , ModuleName
