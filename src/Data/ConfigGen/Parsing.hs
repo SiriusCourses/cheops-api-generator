@@ -21,13 +21,14 @@ import qualified Data.Set       as Set
 import           Data.String    (IsString (fromString))
 import qualified Data.Text      as T
 
-import qualified Data.ConfigGen.JSTypes      as JS
+import qualified Data.ConfigGen.JSTypes     as JS
 import qualified Data.ConfigGen.Parsing.LCP as LCP
-import           Data.ConfigGen.TypeRep      (ModuleParts (..))
-import qualified Data.ConfigGen.TypeRep      as TR
-import           Data.List                   (stripPrefix)
-import           GHC.Generics                (Generic)
-import           System.FilePath             (takeFileName)
+import           Data.ConfigGen.TypeRep     (ModuleParts (..))
+import qualified Data.ConfigGen.TypeRep     as TR
+import           Data.List                  (stripPrefix)
+import           GHC.Generics               (Generic)
+import           System.FilePath            (takeFileName)
+import           Util                       (split)
 
 newtype ParserState =
     ParserState
@@ -219,10 +220,10 @@ postprocessParserResult pr@(ParserResult _ []) = pr
 postprocessParserResult (ParserResult s [x]) =
     ParserResult s $ [Data.Bifunctor.first takeFileName x]
 postprocessParserResult (ParserResult mp incs) =
-    ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . stripPathPrefix lcp) go <$> incs
+    ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . stripPathPrefix) go <$> incs
   where
-    lcp = LCP.commonPrefix $ fst <$> incs
-    stripPathPrefix = stripPrefix
+    lcp = LCP.commonPrefix $ split '/' . fst <$> incs
+    stripPathPrefix y = mconcat <$> stripPrefix lcp (split '/' y)
     -- It is just wrong!
     -- example: paths = [root/m_la.yaml, root/m_lu.yaml]
     -- example: lcp = LCP.commonPrefix paths
@@ -236,11 +237,11 @@ postprocessParserResult (ParserResult mp incs) =
         | TR.Ref nltr <- tr = mpu' & declaration .~ (TR.Ref $ mapNonLocalRef nltr)
       where
         tr = _declaration mp'
-        mpu = mp' & externalDeps %~ Set.map (\x -> fromJust $ stripPathPrefix lcp x)
+        mpu = mp' & externalDeps %~ Set.map (\x -> fromJust $ stripPathPrefix x)
         mpu' = mpu & localDeps %~ fmap go
     mapNonLocalRef :: TR.NonLocalRef -> TR.NonLocalRef
     mapNonLocalRef tr
-        | TR.RefExternalType s <- tr = TR.RefExternalType $ fromJust $ stripPathPrefix lcp s
+        | TR.RefExternalType s <- tr = TR.RefExternalType $ fromJust $ stripPathPrefix s
         | otherwise = tr
     mapTypeRef :: TR.TypeRef -> TR.TypeRef
     mapTypeRef (TR.ExtRef nlr) = TR.ExtRef $ mapNonLocalRef nlr

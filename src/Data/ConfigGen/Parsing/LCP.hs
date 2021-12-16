@@ -4,9 +4,9 @@ module Data.ConfigGen.Parsing.LCP
 
 import Data.Maybe (fromJust, isJust)
 
--- everything here is stolen from here: https://stackoverflow.com/questions/21717646/longest-common-prefix-in-haskell
+-- everything here(with minor changes) is stolen from here: https://stackoverflow.com/questions/21717646/longest-common-prefix-in-haskell
 -- I should write some sort of tree to solve this, but in meantime be aware that this code might work unexpectfully
-commonPrefix :: [String] -> String
+commonPrefix :: Eq a => [[a]] -> [a]
 commonPrefix = map fromJust . takeWhile isJust . map the . transpose'
 
 the :: Eq a => [a] -> Maybe a
@@ -15,7 +15,7 @@ the (x:xs)
     | and $ map (== x) xs = Just x
     | otherwise = Nothing
 
-transpose' :: [String] -> [String]
+transpose' :: [[a]] -> [[a]]
 transpose' xs' =
     maybe [] id $ do
         ys <- mapM ht xs'
