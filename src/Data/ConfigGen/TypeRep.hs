@@ -19,8 +19,8 @@ module Data.ConfigGen.TypeRep
     , isLocal
     , getReference
     , isExtDep
-    , getNameFromReference
-    , importToExportedType
+    , toString
+    , moduleNmToQualTypeName
     ) where
 
 import           Control.Lens      (makeLenses)
@@ -64,10 +64,10 @@ pattern ReferenceToPrimitiveType s = ExtRef (RefPrimitiveType s)
 {-# COMPLETE ReferenceToLocalType, ReferenceToExternalType,
   ReferenceToPrimitiveType #-}
 
-getNameFromReference :: TypeRef -> String
-getNameFromReference (ReferenceToLocalType s)     = s
-getNameFromReference (ReferenceToExternalType s)  = s
-getNameFromReference (ReferenceToPrimitiveType s) = s
+toString :: TypeRef -> String
+toString (ReferenceToLocalType s)     = s
+toString (ReferenceToExternalType s)  = s
+toString (ReferenceToPrimitiveType s) = s
 
 data NonLocalRef
     = RefPrimitiveType String
@@ -119,5 +119,5 @@ getReference :: ModuleParts -> Maybe ModuleName
 getReference ModuleParts {_declaration = (Ref (RefExternalType s))} = Just s
 getReference _                                                      = Nothing
 
-importToExportedType :: ModuleName -> String
-importToExportedType mn = mn ++ "." ++ (capitalise . last $ split '.' mn)
+moduleNmToQualTypeName :: ModuleName -> String
+moduleNmToQualTypeName mn = mn ++ "." ++ (capitalise . last $ split '.' mn)

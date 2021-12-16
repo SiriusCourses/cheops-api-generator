@@ -28,9 +28,9 @@ import           Data.ConfigGen.TypeRep       (ModuleName, ModuleParts (ModulePa
 import qualified Data.ConfigGen.TypeRep       as TR
 
 import Data.Function ((&))
-import GHC.SourceGen (App ((@@)), Field, HsDecl', HsModule', ImportDecl', Var (var), data',
-                      field, import', module', newtype', prefixCon, qualified', recordCon,
-                      strict, type')
+import GHC.SourceGen (App ((@@)), ConDecl', Field, HsDecl', HsModule', ImportDecl', Var (var),
+                      data', field, import', module', newtype', prefixCon, qualified',
+                      recordCon, strict, type')
 
 type ModulePrefix = [String]
 
@@ -88,7 +88,7 @@ buildUp node = do
             Local _ km -> do
                 built <-
                     fmap (KM.foldl' (<>) mempty) . sequence $
-                    KM.fromMap . M.mapWithKey (withReaderT . updatePrefix title) . KM.toMap $ -- (\k mp -> K.toString k : mp)
+                    KM.fromMap . M.mapWithKey (withReaderT . updatePrefix title) . KM.toMap $
                     km
                 return $ (<> built)
             Leaf _ -> return id
@@ -107,10 +107,10 @@ extractPath (Just title) prefix =
 
 extractFullPackageName :: Maybe Title -> ModulePrefix -> (PackageName, DeclName)
 extractFullPackageName Nothing prefix =
-    (mconcat . intersperse "." . reverse $ prefix, takeHeadOrFail prefix) -- <- here will be an error if top level package has no title
+    (mconcat . intersperse "." . reverse $ prefix, takeHeadOrFail prefix)
   where
     takeHeadOrFail (x:_) = x
-    takeHeadOrFail _      = "Unnamed" -- error "Prefix is emtpy, no Name to give"
+    takeHeadOrFail _     = "Unnamed" -- error "Prefix is emtpy, no Name to give"
 extractFullPackageName (Just title) prefix =
     ( mconcat . intersperse "." $ reverse (capitalise title : drop 1 prefix)
     , capitalise $ title)
@@ -135,28 +135,27 @@ buildModule pkgName declName Payload {..} =
             (extImports <> locImports <> defaultImports)
             decls
   where
+    typeRefToQualTypeName (TR.ReferenceToExternalType s) =
+        TR.moduleNmToQualTypeName . dropExtension $ s
+    typeRefToQualTypeName (TR.ReferenceToLocalType s) = TR.moduleNmToQualTypeName s
+    typeRefToQualTypeName (TR.ReferenceToPrimitiveType s) = s
     go :: TypeRep -> (HsDecl', [ImportDecl'])
     go tr
         | (TR.ProdType km) <- tr =
-            (, locDepsFromRecordLike km) $
-            data'
-                (fromString declName)
-                []
-                [ recordCon (fromString declName) $
-                  (bimap (fromString . K.toString) (fieldFromReference)) <$> KM.toList km
-                ]
-                []
+            (, locDepsFromRecordLike km) $ data' (fromString declName) [] [buildProdCon km] []
         | (TR.SumType km) <- tr =
-            (, locDepsFromRecordLike km) $
-            data'
-                (fromString declName)
-                []
-                ((\(k, v) ->
-                      prefixCon (fromString . K.toString $ k) $
-                      singleton . fieldFromReference $ v) <$>
-                 KM.toList km)
-                []
+            (, locDepsFromRecordLike km) $ data' (fromString declName) [] (buildSumCon's km) []
       where
+        buildProdCon :: KeyMap TR.TypeRef -> ConDecl'
+        buildProdCon km =
+            recordCon (fromString declName) $
+            (bimap (fromString . K.toString) (fieldFromReference)) <$> KM.toList km
+        buildSumCon's :: KeyMap TR.TypeRef -> [ConDecl']
+        buildSumCon's km =
+            let constructorFromPair k v =
+                    prefixCon (fromString . K.toString $ k) $
+                    singleton . fieldFromReference $ v
+             in (uncurry constructorFromPair) <$> KM.toList km
         locDepsFromRecordLike :: KeyMap TR.TypeRef -> [ImportDecl']
         locDepsFromRecordLike km = catMaybes $ typeRefToLocalDeps . snd <$> KM.toList km
           where
@@ -166,57 +165,28 @@ buildModule pkgName declName Payload {..} =
                 Just . qualified' . import' . fromString $
                 pkgName ++ "." ++ (capitalise $ TR.unLocalRef lr)
         fieldFromReference :: TR.TypeRef -> Field
-        fieldFromReference tr'@(TR.ExtRef r) =
-            strict .
-            field .
-            var .
-            fromString .
-            capitalise .
-            (case r of
-                 (TR.RefPrimitiveType _) -> id
-                 (TR.RefExternalType _)  -> TR.importToExportedType . dropExtension) .
-            TR.getNameFromReference $
-            tr'
+        fieldFromReference tr'@(TR.ExtRef _) =
+            bangfield . capitalise $ typeRefToQualTypeName tr'
         fieldFromReference tr'@(TR.LocRef _) =
-            strict .
-            field .
-            var .
-            fromString .
-            ((pkgName ++ ".") ++) .
-            capitalise . TR.importToExportedType . TR.getNameFromReference $
+            bangfield .
+            ((pkgName ++ ".") ++) . capitalise . TR.moduleNmToQualTypeName . TR.toString $
             tr'
+        bangfield :: String -> Field
+        bangfield = strict . field . var . fromString
     go (TR.ArrayType tr) =
-        (case tr of
-             TR.ExtRef _ -> (, [])
-             TR.LocRef _ ->
-                 (, [import' . fromString . capitalise . TR.getNameFromReference $ tr])) $
+        localImports tr $
         type' (fromString declName) [] $
-        var "Data.Vector.Vector" @@
-        (var .
-         fromString .
-         capitalise .
-         TR.importToExportedType .
-         (case tr of
-              TR.ReferenceToExternalType _ -> dropExtension
-              _                            -> id) .
-         TR.getNameFromReference $
-         tr)
+        var "Data.Vector.Vector" @@ (var . fromString . capitalise $ typeRefToQualTypeName tr)
+      where
+        localImports (TR.ExtRef _) = (, [])
+        localImports (TR.LocRef _) = (, [import' . fromString . capitalise . TR.toString $ tr])
     go (TR.NewType newtypeName tr) =
         (, []) $ newtype' typeName [] (recordCon constructorName [(fieldName, fieldType)]) []
       where
         typeName = fromString . capitalise $ newtypeName
         constructorName = typeName
         fieldName = fromString $ "un" ++ (capitalise newtypeName)
-        fieldType =
-            field . var $
-            fromString .
-            capitalise .
-            (case tr of
-                 TR.ExtRef (TR.RefPrimitiveType _) -> id
-                 TR.ExtRef (TR.RefExternalType _)  -> TR.importToExportedType
-                 TR.LocRef _                       -> TR.importToExportedType) .
-            TR.getNameFromReference $
-            tr
+        fieldType = field . var $ fromString . capitalise $ typeRefToQualTypeName tr
     go (TR.Ref (TR.RefPrimitiveType s)) =
         (, []) $
         type'
@@ -229,7 +199,7 @@ buildModule pkgName declName Payload {..} =
             (fromString declName)
             []
             ((var . fromString $ declName) @@
-             (var . fromString . capitalise . TR.importToExportedType $ (mn & dropExtension)))
+             (var . fromString . capitalise . TR.moduleNmToQualTypeName $ (mn & dropExtension)))
 
 buildExternalDep :: ModuleName -> Ctx (KeyMap HsModule')
 buildExternalDep moduleName = do
@@ -247,8 +217,8 @@ buildExternalDep moduleName = do
                     (coerce state' :: KeyMap (Dep ModuleParts))
             put newState
             builtModules <- local (const mempty) $ modulePartsToModules yetTobuild
-            modify $ \(GeneratorState incs) ->
-                GeneratorState $ KM.insert (fromString moduleName) Built incs
+            modify $ \incs ->
+                GeneratorState $ KM.insert (fromString moduleName) Built $ coerce incs
             return builtModules
 
 modulePartsToModules :: ModuleParts -> Ctx (KeyMap HsModule')

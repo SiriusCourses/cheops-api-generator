@@ -27,7 +27,7 @@ import           Data.ConfigGen.TypeRep      (ModuleParts (..))
 import qualified Data.ConfigGen.TypeRep      as TR
 import           Data.List                   (stripPrefix)
 import           GHC.Generics                (Generic)
-import System.FilePath (takeFileName)
+import           System.FilePath             (takeFileName)
 
 newtype ParserState =
     ParserState
@@ -56,6 +56,8 @@ makeLenses ''ParserState
 type TypeInfo = String
 
 type Title = String
+
+type Origin = String
 
 type Properties = Object
 
@@ -86,23 +88,36 @@ expectArray msg _ v       = lift $ prependFailure msg (typeMismatch "Array" v)
 
 parseDispatch :: Object -> StatefulParser ModuleParts
 parseDispatch obj = do
-    (maybeJsTypeTag :: Maybe JS.TypeTag) <- lift $ JS.parseTypeTag <$> (obj .: "type")
-    (maybeOrigin :: Maybe String) <- lift $ obj .:? "haskell/origin"
-    jsTypeTag <- maybe (fail $ "Found incorect type here: " ++ show obj) return maybeJsTypeTag
-    title <- lift $ parseTitle obj
-    typeInfo <- lift $ parseTypeInfo obj
-    case (jsTypeTag, maybeOrigin) of
-        (JS.Prim tag, _)          -> parsePrimitve tag title typeInfo maybeOrigin
+    jsTypeTag <- lift $ failOrJsTypeTag
+    maybeOrigin <- lift $ obj .:? "haskell/origin"
+    typeInfo <- lift $ obj .:? "haskell/type-info"
+    title <- lift $ obj .:? "title"
+    retrieveCachedInclude title maybeOrigin $
+        case jsTypeTag of
+            JS.Prim tag -> parsePrimitve tag title typeInfo
         -- here will go things for allOf, anyOf, oneOf
-        (JS.Rec tag, Nothing)     -> parseRecordLike obj tag title
-        (JS.Rec tag, Just origin) -> parseInclude obj (fromString origin) tag
-        (JS.ArrayTag, arrTitle)   -> parseArray obj arrTitle
-
-parseTypeInfo :: Object -> Parser (Maybe String)
-parseTypeInfo obj = obj .:? "haskell/type-info"
-
-parseTitle :: Object -> Parser (Maybe String)
-parseTitle obj = obj .:? "title"
+            JS.Rec tag  -> parseRecordLike obj tag title
+            JS.ArrayTag -> parseArray obj title
+  where
+    failOrJsTypeTag :: Parser JS.TypeTag
+    failOrJsTypeTag = do
+        (maybeJsTypeTag :: Maybe JS.TypeTag) <- JS.parseTypeTag <$> (obj .: "type")
+        maybe (fail $ "Found incorect type here: " ++ show obj) return $ maybeJsTypeTag
+    retrieveCachedInclude ::
+           Maybe Title
+        -> Maybe Origin
+        -> StatefulParser ModuleParts -- how to cache if not yet cached
+        -> StatefulParser ModuleParts
+    retrieveCachedInclude title m_origin k =
+        (\t -> maybe k t m_origin) $ \origin -> do
+            maybeCachedIncldue <-
+                fmap (KM.lookup . fromString $ origin) $ get <&> _cachedIncludes
+            case maybeCachedIncldue of
+                Nothing -> do
+                    res <- k
+                    modify $ cachedIncludes %~ KM.insert (fromString origin) res
+                Just _ -> return ()
+            return . ModuleParts title mempty mempty . TR.Ref . TR.RefExternalType $ origin
 
 checkAdditionalPropertiesFlag :: Object -> Parser ()
 checkAdditionalPropertiesFlag obj = do
@@ -134,13 +149,8 @@ parseArray obj maybeTitle = do
             ModuleParts maybeTitle mempty (KM.singleton itemField items) $
             TR.ArrayType (TR.ReferenceToLocalType $ K.toString itemField)
 
-parsePrimitve ::
-       JS.PrimitiveTag
-    -> Maybe Title
-    -> Maybe TypeInfo
-    -> Maybe String
-    -> StatefulParser ModuleParts
-parsePrimitve typeTag maybeTitle tInfo Nothing = do
+parsePrimitve :: JS.PrimitiveTag -> Maybe Title -> Maybe TypeInfo -> StatefulParser ModuleParts
+parsePrimitve typeTag maybeTitle tInfo = do
     let newtypeWrapper =
             case maybeTitle of
                 Just s  -> (\nlr -> TR.NewType s . TR.ExtRef $ nlr)
@@ -151,19 +161,10 @@ parsePrimitve typeTag maybeTitle tInfo Nothing = do
             JS.PrimNumberTag -> fromMaybe "Int" tInfo
             JS.PrimBoolTag   -> "Bool"
             JS.PrimNullTag   -> "()"
-parsePrimitve typeTag maybeTitle tInfo (Just origin) = do
-    maybeCachedIncldue <- fmap (KM.lookup . fromString $ origin) $ get <&> _cachedIncludes
-    case maybeCachedIncldue of
-        Nothing -> do
-            res <- parsePrimitve typeTag maybeTitle tInfo Nothing
-            modify $ cachedIncludes %~ (KM.insert . fromString $ origin) res
-        Just _ -> return ()
-    return . ModuleParts maybeTitle mempty mempty . TR.Ref . TR.RefExternalType $ origin
 
-parseInclude :: Object -> Key -> JS.RecordLikeTag -> StatefulParser ModuleParts
-parseInclude obj origin typeTag = do
+parseInclude :: Object -> Key -> Maybe Title -> JS.RecordLikeTag -> StatefulParser ModuleParts
+parseInclude obj origin title typeTag = do
     maybeCachedIncldue <- fmap (KM.lookup origin) $ get <&> _cachedIncludes
-    title <- lift $ parseTitle obj
     case maybeCachedIncldue of
         Nothing -> do
             res <- parseRecordLike obj typeTag title
@@ -215,7 +216,8 @@ parseRecordLike obj typeTag title
 
 postprocessParserResult :: ParserResult -> ParserResult
 postprocessParserResult pr@(ParserResult _ []) = pr
-postprocessParserResult (ParserResult s [x]) = ParserResult s $ [Data.Bifunctor.first takeFileName x]
+postprocessParserResult (ParserResult s [x]) =
+    ParserResult s $ [Data.Bifunctor.first takeFileName x]
 postprocessParserResult (ParserResult mp incs) =
     ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . stripPathPrefix lcp) go <$> incs
   where
