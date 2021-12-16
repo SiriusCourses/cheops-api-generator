@@ -224,10 +224,6 @@ postprocessParserResult (ParserResult mp incs) =
   where
     lcp = LCP.commonPrefix $ split '/' . fst <$> incs
     stripPathPrefix y = mconcat <$> stripPrefix lcp (split '/' y)
-    -- It is just wrong!
-    -- example: paths = [root/m_la.yaml, root/m_lu.yaml]
-    -- example: lcp = LCP.commonPrefix paths
-    -- example: stripPrefix lcp <$> paths = [a.yaml, u.yaml]
     go :: ModuleParts -> ModuleParts
     go mp'
         | TR.ProdType km <- tr = mpu' & declaration .~ (TR.ProdType $ mapTypeRef <$> km)
