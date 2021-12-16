@@ -1,4 +1,4 @@
-module Data.ConfigGen.Traverse.LCP
+module Data.ConfigGen.Parsing.LCP
     ( commonPrefix
     ) where
 

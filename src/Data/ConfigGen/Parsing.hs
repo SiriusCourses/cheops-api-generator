@@ -22,7 +22,7 @@ import           Data.String    (IsString (fromString))
 import qualified Data.Text      as T
 
 import qualified Data.ConfigGen.JSTypes      as JS
-import qualified Data.ConfigGen.Traverse.LCP as LCP
+import qualified Data.ConfigGen.Parsing.LCP as LCP
 import           Data.ConfigGen.TypeRep      (ModuleParts (..))
 import qualified Data.ConfigGen.TypeRep      as TR
 import           Data.List                   (stripPrefix)
