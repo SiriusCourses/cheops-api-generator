@@ -4,22 +4,19 @@
 module Main where
 
 import qualified Data.Bifunctor
-import           Data.Coerce       (coerce)
-import           Data.Foldable     (Foldable (foldl'), traverse_)
-import           Data.String       (IsString (fromString))
+import           Data.Coerce    (coerce)
+import           Data.Foldable  (Foldable (foldl'), traverse_)
+import           Data.String    (IsString (fromString))
 
 import Control.Monad.Except       (runExcept)
 import Control.Monad.Reader       (ReaderT (runReaderT))
 import Control.Monad.State.Strict (StateT (runStateT))
 
-
 import Data.Yaml (FromJSON, decodeHelper)
-
 
 import qualified Data.Aeson.Key    as K
 import qualified Data.Aeson.KeyMap as KM
 import           Data.Aeson.Types  (FromJSON (parseJSON))
-
 
 import System.Directory     (createDirectoryIfMissing)
 import System.FilePath      (takeDirectory, (</>))
@@ -31,8 +28,10 @@ import GHC.SourceGen (HsModule', showPpr)
 
 import qualified CLI
 import           Data.ConfigGen.Parsing  (ParserResult (..))
-import           Data.ConfigGen.Traverse (Dep (ToBuild), GeneratorState (GeneratorState),
+import           Data.ConfigGen.Traverse (Ctx, Dep (ToBuild), GeneratorState (GeneratorState),
                                           modulePartsToModules)
+
+import Data.ConfigGen.Parsing.IncludeInjection (eventsFromFile)
 
 import Data.ConfigGen.Parsing.IncludeInjection ( eventsFromFile )
 
@@ -92,4 +91,3 @@ main = do
             dflags <- runGhc (Just libdir) getSessionDynFlags
             createDirectoryIfMissing True $ takeDirectory path
             writeFile path $ showPpr dflags md
-
