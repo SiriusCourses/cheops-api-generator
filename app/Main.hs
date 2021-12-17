@@ -28,12 +28,11 @@ import GHC.SourceGen (HsModule', showPpr)
 
 import qualified CLI
 import           Data.ConfigGen.Parsing  (ParserResult (..))
-import           Data.ConfigGen.Traverse (Ctx, Dep (ToBuild), GeneratorState (GeneratorState),
+import           Data.ConfigGen.Traverse (Dep (..), GeneratorState (..),
                                           modulePartsToModules)
 
 import Data.ConfigGen.Parsing.IncludeInjection (eventsFromFile)
 
-import Data.ConfigGen.Parsing.IncludeInjection ( eventsFromFile )
 
 newtype GeneratedModules =
     GeneratedModules
@@ -55,10 +54,7 @@ instance FromJSON GeneratedModules where
         return . coerce $ Data.Bifunctor.first K.toString <$> KM.toList res
 
 collectFiles :: FilePath -> IO [FilePath]
-collectFiles fp = do 
-    res <- find always (extension ==? ".yaml") fp
-    print res
-    return res
+collectFiles = find always (extension ==? ".yaml")
 
 main :: IO ()
 main = do
