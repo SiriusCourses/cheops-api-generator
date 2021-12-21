@@ -1,7 +1,9 @@
-{-# LANGUAGE DeriveAnyClass  #-}
-{-# LANGUAGE DeriveGeneric   #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveAnyClass       #-}
+{-# LANGUAGE DeriveGeneric        #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE RecordWildCards      #-}
+{-# LANGUAGE TemplateHaskell      #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module Data.ConfigGen.Parsing where
 
@@ -25,9 +27,9 @@ import qualified Data.ConfigGen.JSTypes     as JS
 import qualified Data.ConfigGen.Parsing.LCP as LCP
 import           Data.ConfigGen.TypeRep     (ModuleParts (..))
 import qualified Data.ConfigGen.TypeRep     as TR
-import           Data.List                  (stripPrefix)
+import           Data.List                  (stripPrefix, intersperse)
 import           GHC.Generics               (Generic)
-import           System.FilePath            (takeFileName)
+import           System.FilePath            (takeBaseName, takeFileName)
 import           Util                       (split)
 
 newtype ParserState =
@@ -62,9 +64,16 @@ type Origin = String
 
 type Properties = Object
 
+-- parse file, collect its dependencies
+-- extract path of processed file, append it to external dependecies of itself
+-- discard main type in Parser result, use include map as start to next file
+-- check if it is there at first, and if not process it as previouse one
+-- in result there will be update keymap of external depencies of both files
+-- continue as such until all files are processed
+-- I hope that in result there will be no unnecacry include processing and nothing will be lost
+-- This is note for future me, who will continue to work on it on mondaytype ParserResultFromDir = Reader (NonEmpty FilePath) (Either String ParserResult)
 instance FromJSON ParserResult where
-    parseJSON (Object obj) =
-        postprocessParserResult . makeParserResult <$> runStateT (parseDispatch obj) mempty
+    parseJSON (Object obj) = makeParserResult <$> runStateT (parseDispatch obj) mempty
       where
         makeParserResult :: (ModuleParts, ParserState) -> ParserResult
         makeParserResult (mainType, ps) =
@@ -92,7 +101,7 @@ parseDispatch obj = do
     jsTypeTag <- lift $ failOrJsTypeTag
     maybeOrigin <- lift $ obj .:? "haskell/origin"
     typeInfo <- lift $ obj .:? "haskell/type-info"
-    title <- lift $ obj .:? "title"
+    title <- lift $ titleFromOrigin maybeOrigin <$> obj .:? "title"
     retrieveCachedInclude title maybeOrigin $
         case jsTypeTag of
             JS.Prim tag -> parsePrimitve tag title typeInfo
@@ -100,9 +109,14 @@ parseDispatch obj = do
             JS.Rec tag  -> parseRecordLike obj tag title
             JS.ArrayTag -> parseArray obj title
   where
+    titleFromOrigin :: Maybe Origin -> Maybe Title -> Maybe Title
+    titleFromOrigin Nothing title         = title
+    titleFromOrigin (Just origin) Nothing = Just $ takeBaseName origin
+    titleFromOrigin _ (Just title)        = Just title
     failOrJsTypeTag :: Parser JS.TypeTag
     failOrJsTypeTag = do
-        (maybeJsTypeTag :: Maybe JS.TypeTag) <- JS.parseTypeTag <$> (obj .: "type")
+        (maybeJsTypeTag :: Maybe JS.TypeTag) <-
+            JS.parseTypeTag <$> (obj .:? "type" .!= "object")
         maybe (fail $ "Found incorect type here: " ++ show obj) return $ maybeJsTypeTag
     retrieveCachedInclude ::
            Maybe Title
@@ -223,7 +237,7 @@ postprocessParserResult (ParserResult mp incs) =
     ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . stripPathPrefix) go <$> incs
   where
     lcp = LCP.commonPrefix $ split '/' . fst <$> incs
-    stripPathPrefix y = mconcat <$> stripPrefix lcp (split '/' y)
+    stripPathPrefix y = mconcat . intersperse "/" <$> stripPrefix lcp (split '/' y)
     go :: ModuleParts -> ModuleParts
     go mp'
         | TR.ProdType km <- tr = mpu' & declaration .~ (TR.ProdType $ mapTypeRef <$> km)
@@ -242,3 +256,36 @@ postprocessParserResult (ParserResult mp incs) =
     mapTypeRef :: TR.TypeRef -> TR.TypeRef
     mapTypeRef (TR.ExtRef nlr) = TR.ExtRef $ mapNonLocalRef nlr
     mapTypeRef r               = r
+
+replaceDashesWithUnderscores :: ParserResult -> ParserResult
+replaceDashesWithUnderscores (ParserResult mp deps) =
+    ParserResult (go mp) $ Data.Bifunctor.bimap transform go <$> deps
+  where
+    go :: ModuleParts -> ModuleParts
+    go (ModuleParts m_s set km tr) = ModuleParts {..}
+      where
+        _jsTitle = transform <$> m_s
+        _localDeps = KM.mapKeyVal (fromString . transform . K.toString) go km
+        _externalDeps = Set.map transform set
+        _declaration = transformTypeRep tr
+    transformTypeRep :: TR.TypeRep -> TR.TypeRep
+    transformTypeRep (TR.ProdType km) =
+        TR.ProdType $ KM.mapKeyVal (fromString . transform . K.toString) transfromTypeRef km
+    transformTypeRep (TR.SumType km) =
+        TR.SumType $ KM.mapKeyVal (fromString . transform . K.toString) transfromTypeRef km
+    transformTypeRep (TR.ArrayType tr') = TR.ArrayType $ transfromTypeRef tr'
+    transformTypeRep (TR.NewType s tr') = TR.NewType (transform s) $ transfromTypeRef tr'
+    transformTypeRep (TR.Ref (TR.RefExternalType nm)) =
+        TR.Ref . TR.RefExternalType $ transform nm
+    transformTypeRep (TR.Ref (TR.RefPrimitiveType nm)) =
+        TR.Ref . TR.RefPrimitiveType $ transform nm
+    transfromTypeRef :: TR.TypeRef -> TR.TypeRef
+    transfromTypeRef (TR.ReferenceToLocalType s) = TR.ReferenceToLocalType $ transform s
+    transfromTypeRef (TR.ReferenceToExternalType s) = TR.ReferenceToExternalType $ transform s
+    transfromTypeRef (TR.ReferenceToPrimitiveType s) =
+        TR.ReferenceToPrimitiveType $ transform s
+    transform :: String -> String
+    transform nm = map l nm
+      where
+        l '-' = '_'
+        l s   = s

@@ -68,12 +68,14 @@ pattern RecordLike <- (isPrimitive -> False)
 {-# COMPLETE Primitive, RecordLike #-}
 
 parseTypeTag :: String -> Maybe TypeTag
-parseTypeTag "array"  = Just ArrayTag
-parseTypeTag "object" = Just ObjectTag
-parseTypeTag "enum"   = Just EnumTag
-parseTypeTag "number" = Just NumberTag
-parseTypeTag "string" = Just StringTag
-parseTypeTag "text"   = Just StringTag
-parseTypeTag "bool"   = Just BoolTag
-parseTypeTag "null"   = Just NullTag
-parseTypeTag _        = Nothing
+parseTypeTag "array"   = Just ArrayTag
+parseTypeTag "object"  = Just ObjectTag
+parseTypeTag "enum"    = Just EnumTag
+parseTypeTag "number"  = Just NumberTag
+parseTypeTag "integer"  = Just NumberTag
+parseTypeTag "string"  = Just StringTag
+parseTypeTag "text"    = Just StringTag
+parseTypeTag "bool"    = Just BoolTag
+parseTypeTag "boolean" = Just BoolTag
+parseTypeTag "null"    = Just NullTag
+parseTypeTag _         = Nothing

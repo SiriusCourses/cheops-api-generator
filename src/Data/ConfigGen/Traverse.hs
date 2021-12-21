@@ -2,7 +2,7 @@
 
 module Data.ConfigGen.Traverse where
 
-import Control.Monad.Except       (Except, MonadError (..))
+import Control.Monad.Except       (Except, MonadError (..), runExcept)
 import Control.Monad.Reader       (MonadReader (..), ReaderT (..), asks, local, withReaderT)
 import Control.Monad.State.Strict (MonadState (..), StateT (..), modify)
 
@@ -22,7 +22,7 @@ import qualified Data.Aeson.Key    as K
 import           Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
 
-import           Data.ConfigGen.Parsing       (Title)
+import           Data.ConfigGen.Parsing       (ParserResult (ParserResult), Title)
 import qualified Data.ConfigGen.Traverse.Hylo as Hylo
 import           Data.ConfigGen.TypeRep       (ModuleName, ModuleParts (ModuleParts), TypeRep)
 import qualified Data.ConfigGen.TypeRep       as TR
@@ -31,6 +31,7 @@ import Data.Function ((&))
 import GHC.SourceGen (App ((@@)), ConDecl', Field, HsDecl', HsModule', ImportDecl', Var (var),
                       data', field, import', module', newtype', prefixCon, qualified',
                       recordCon, strict, type')
+import Debug.Trace (trace)
 
 type ModulePrefix = [String]
 
@@ -137,7 +138,8 @@ buildModule pkgName declName Payload {..} =
   where
     typeRefToQualTypeName (TR.ReferenceToExternalType s) =
         TR.moduleNmToQualTypeName . dropExtension $ s
-    typeRefToQualTypeName (TR.ReferenceToLocalType s) = TR.moduleNmToQualTypeName s
+    typeRefToQualTypeName (TR.ReferenceToLocalType s) =
+        ((pkgName <> ".") <>) . capitalise $ TR.moduleNmToQualTypeName s
     typeRefToQualTypeName (TR.ReferenceToPrimitiveType s) = s
     go :: TypeRep -> (HsDecl', [ImportDecl'])
     go tr
@@ -149,11 +151,12 @@ buildModule pkgName declName Payload {..} =
         buildProdCon :: KeyMap TR.TypeRef -> ConDecl'
         buildProdCon km =
             recordCon (fromString declName) $
-            (bimap (fromString . K.toString) (fieldFromReference)) <$> KM.toList km
+            (bimap (fromString . changeReservedNames . K.toString) (fieldFromReference)) <$>
+            KM.toList km
         buildSumCon's :: KeyMap TR.TypeRef -> [ConDecl']
         buildSumCon's km =
             let constructorFromPair k v =
-                    prefixCon (fromString . K.toString $ k) $
+                    prefixCon (fromString . changeReservedNames . K.toString $ k) $
                     singleton . fieldFromReference $ v
              in (uncurry constructorFromPair) <$> KM.toList km
         locDepsFromRecordLike :: KeyMap TR.TypeRef -> [ImportDecl']
@@ -173,13 +176,18 @@ buildModule pkgName declName Payload {..} =
             tr'
         bangfield :: String -> Field
         bangfield = strict . field . var . fromString
+        changeReservedNames :: String -> String
+        changeReservedNames "type" = "_type'"
+        changeReservedNames "data" = "_data'"
+        changeReservedNames x      = x
     go (TR.ArrayType tr) =
         localImports tr $
         type' (fromString declName) [] $
         var "Data.Vector.Vector" @@ (var . fromString . capitalise $ typeRefToQualTypeName tr)
       where
         localImports (TR.ExtRef _) = (, [])
-        localImports (TR.LocRef _) = (, [import' . fromString . capitalise . TR.toString $ tr])
+        localImports (TR.LocRef _) =
+            (, [import' . fromString . ((pkgName <> ".") <>) . capitalise . TR.toString $ tr])
     go (TR.NewType newtypeName tr) =
         (, []) $ newtype' typeName [] (recordCon constructorName [(fieldName, fieldType)]) []
       where
@@ -221,5 +229,26 @@ buildExternalDep moduleName = do
                 GeneratorState $ KM.insert (fromString moduleName) Built $ coerce incs
             return builtModules
 
+buildOrphanDeps :: Ctx (KeyMap HsModule')
+buildOrphanDeps = do
+    nms <- fmap (K.toString . fst) . filter f . KM.toList . includes <$> get
+    mconcat <$> (traverse buildExternalDep $ nms)
+  where
+    f (_, ToBuild _) = True
+    f (_, Built)     = False
+
 modulePartsToModules :: ModuleParts -> Ctx (KeyMap HsModule')
 modulePartsToModules = Hylo.hylo breakDown buildUp
+
+build :: ParserResult -> Either String (KeyMap HsModule')
+build (ParserResult mp deps) = do
+    (km, _) <-
+        runExcept $
+        runStateT
+            (runReaderT
+                 (do res <- modulePartsToModules mp
+                     orphKM <- buildOrphanDeps
+                     trace ("appended hsmodules: " ++ show (KM.keys orphKM)) return $ res <> orphKM)
+                 mempty) $
+        GeneratorState . KM.fromList $ Data.Bifunctor.bimap fromString ToBuild <$> deps
+    return km
