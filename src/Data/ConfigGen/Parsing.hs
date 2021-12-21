@@ -10,12 +10,9 @@ module Data.ConfigGen.Parsing where
 import Control.Lens               (makeLenses, (%~), (&), (.~), (<&>), (^.))
 import Control.Monad.State.Strict (MonadTrans (lift), StateT (runStateT), get, modify)
 
-import qualified Data.Aeson.Key    as K (toString)
-import           Data.Aeson.KeyMap (KeyMap)
-import qualified Data.Aeson.KeyMap as KM
-import           Data.Aeson.Types  (Key, prependFailure, typeMismatch)
-import           Data.Yaml         (Array, FromJSON (..), Object, Parser, ToJSON, Value (..),
-                                    (.!=), (.:), (.:?))
+import Data.Aeson.Types (prependFailure, typeMismatch)
+import Data.Yaml        (Array, FromJSON (..), Object, Parser, ToJSON, Value (..), (.!=), (.:),
+                         (.:?))
 
 import qualified Data.Bifunctor
 import           Data.Maybe     (fromJust, fromMaybe)
@@ -27,14 +24,16 @@ import qualified Data.ConfigGen.JSTypes     as JS
 import qualified Data.ConfigGen.Parsing.LCP as LCP
 import           Data.ConfigGen.TypeRep     (ModuleParts (..))
 import qualified Data.ConfigGen.TypeRep     as TR
-import           Data.List                  (stripPrefix, intersperse)
+import           Data.List                  (intersperse, stripPrefix)
+import           Data.Map                   (Map)
+import qualified Data.Map                   as Map
 import           GHC.Generics               (Generic)
 import           System.FilePath            (takeBaseName, takeFileName)
 import           Util                       (split)
 
 newtype ParserState =
     ParserState
-        { _cachedIncludes :: KeyMap ModuleParts
+        { _cachedIncludes :: Map FilePath ModuleParts
         }
     deriving (Show, Eq, Generic)
     deriving newtype (Semigroup, Monoid)
@@ -77,7 +76,7 @@ instance FromJSON ParserResult where
       where
         makeParserResult :: (ModuleParts, ParserState) -> ParserResult
         makeParserResult (mainType, ps) =
-            let deps = Data.Bifunctor.first K.toString <$> KM.toAscList (_cachedIncludes ps)
+            let deps = Map.toList (_cachedIncludes ps)
              in ParserResult {..}
     parseJSON invalid = prependFailure failMsg $ typeMismatch "Parsed Types" invalid
       where
@@ -110,9 +109,8 @@ parseDispatch obj = do
             JS.ArrayTag -> parseArray obj title
   where
     titleFromOrigin :: Maybe Origin -> Maybe Title -> Maybe Title
-    titleFromOrigin Nothing title         = title
-    titleFromOrigin (Just origin) Nothing = Just $ takeBaseName origin
-    titleFromOrigin _ (Just title)        = Just title
+    titleFromOrigin _ (Just title) = Just $ title
+    titleFromOrigin origin Nothing   = origin
     failOrJsTypeTag :: Parser JS.TypeTag
     failOrJsTypeTag = do
         (maybeJsTypeTag :: Maybe JS.TypeTag) <-
@@ -125,12 +123,11 @@ parseDispatch obj = do
         -> StatefulParser ModuleParts
     retrieveCachedInclude title m_origin k =
         (\t -> maybe k t m_origin) $ \origin -> do
-            maybeCachedIncldue <-
-                fmap (KM.lookup . fromString $ origin) $ get <&> _cachedIncludes
+            maybeCachedIncldue <- fmap (Map.lookup origin) $ get <&> _cachedIncludes
             case maybeCachedIncldue of
                 Nothing -> do
                     res <- k
-                    modify $ cachedIncludes %~ KM.insert (fromString origin) res
+                    modify $ cachedIncludes %~ Map.insert origin res
                 Just _ -> return ()
             return . ModuleParts title mempty mempty . TR.Ref . TR.RefExternalType $ origin
 
@@ -148,9 +145,9 @@ checkAdditionalPropertiesFlag obj = do
 
 parseArray :: Object -> Maybe Title -> StatefulParser ModuleParts
 parseArray obj maybeTitle = do
-    let itemField = "items"
+    let itemField :: String = "items"
     -- todo: think about newtype
-    items <- parseDispatch =<< lift (obj .: itemField)
+    items <- parseDispatch =<< lift (obj .: fromString itemField)
     case items ^. declaration of
         (TR.Ref (TR.RefExternalType s)) ->
             return $
@@ -161,8 +158,8 @@ parseArray obj maybeTitle = do
             ModuleParts maybeTitle mempty mempty $ TR.ArrayType (TR.ReferenceToPrimitiveType s)
         _local ->
             return $
-            ModuleParts maybeTitle mempty (KM.singleton itemField items) $
-            TR.ArrayType (TR.ReferenceToLocalType $ K.toString itemField)
+            ModuleParts maybeTitle mempty (Map.singleton itemField items) $
+            TR.ArrayType (TR.ReferenceToLocalType itemField)
 
 parsePrimitve :: JS.PrimitiveTag -> Maybe Title -> Maybe TypeInfo -> StatefulParser ModuleParts
 parsePrimitve typeTag maybeTitle tInfo = do
@@ -177,39 +174,40 @@ parsePrimitve typeTag maybeTitle tInfo = do
             JS.PrimBoolTag   -> "Bool"
             JS.PrimNullTag   -> "()"
 
-parseInclude :: Object -> Key -> Maybe Title -> JS.RecordLikeTag -> StatefulParser ModuleParts
+parseInclude ::
+       Object -> Origin -> Maybe Title -> JS.RecordLikeTag -> StatefulParser ModuleParts
 parseInclude obj origin title typeTag = do
-    maybeCachedIncldue <- fmap (KM.lookup origin) $ get <&> _cachedIncludes
+    maybeCachedIncldue <- fmap (Map.lookup origin) $ get <&> _cachedIncludes
     case maybeCachedIncldue of
         Nothing -> do
             res <- parseRecordLike obj typeTag title
-            modify $ cachedIncludes %~ KM.insert origin res
+            modify $ cachedIncludes %~ Map.insert origin res
         Just _ -> return ()
-    return . ModuleParts title mempty mempty . TR.Ref . TR.RefExternalType $ K.toString origin
+    return . ModuleParts title mempty mempty . TR.Ref . TR.RefExternalType $ origin
 
 parseRecordLike :: Object -> JS.RecordLikeTag -> Maybe Title -> StatefulParser ModuleParts
 parseRecordLike obj typeTag title
     -- lift $ checkAdditionalPropertiesFlag obj
  = do
-    (reqs :: [Key]) <- lift $ obj .:? "required" .!= mempty
-    (properties :: Object) <- lift $ checkRequired reqs =<< obj .:? "properties" .!= mempty
-    (parsedProperties :: KeyMap ModuleParts) <-
-        mapM (expectObject "failed to parse property to Object" parseDispatch) properties
+    (reqs :: [TR.FieldName]) <- lift $ obj .:? "required" .!= mempty
+    (properties :: Map TR.FieldName Object) <-
+        lift $ checkRequired reqs =<< obj .:? "properties" .!= mempty
+    (parsedProperties :: Map TR.FieldName ModuleParts) <- mapM parseDispatch properties
     let initialTypeRep =
             case typeTag of
                 JS.RecEnumTag   -> TR.SumType mempty
                 JS.RecObjectTag -> TR.ProdType mempty
     return $
-        KM.foldrWithKey
+        Map.foldrWithKey
             appendRecord
             (ModuleParts title mempty mempty initialTypeRep)
             parsedProperties
   where
-    appendRecord :: Key -> ModuleParts -> ModuleParts -> ModuleParts
+    appendRecord :: TR.FieldName -> ModuleParts -> ModuleParts -> ModuleParts
     appendRecord k record ModuleParts {..} =
         let chosenName = chooseName k $ record ^. jsTitle
-            chooseName :: Key -> Maybe String -> Key
-            chooseName k' m_s = fromString $ fromMaybe (K.toString k') m_s
+            chooseName :: TR.FieldName -> Maybe Title -> TR.FieldName
+            chooseName k' m_s = fromString $ fromMaybe k' m_s
          in case record ^. declaration of
                 TR.Ref (TR.RefPrimitiveType s) ->
                     ModuleParts _jsTitle _externalDeps _localDeps $
@@ -218,26 +216,29 @@ parseRecordLike obj typeTag title
                     ModuleParts _jsTitle (Set.insert extName _externalDeps) _localDeps $
                     TR.appendToTypeRep _declaration k $ TR.ReferenceToExternalType extName
                 _local ->
-                    ModuleParts _jsTitle _externalDeps (KM.insert chosenName record _localDeps) $
-                    TR.appendToTypeRep
-                        _declaration
-                        k
-                        (TR.ReferenceToLocalType . K.toString $ chosenName)
-    checkRequired :: [Key] -> Properties -> Parser Object
+                    ModuleParts
+                        _jsTitle
+                        _externalDeps
+                        (Map.insert chosenName record _localDeps) $
+                    TR.appendToTypeRep _declaration k (TR.ReferenceToLocalType chosenName)
+    checkRequired ::
+           [TR.FieldName] -> Map TR.FieldName Object -> Parser (Map TR.FieldName Object)
     checkRequired reqs properties =
-        if all (`KM.member` properties) reqs
+        if all (`Map.member` properties) reqs
             then return properties
             else fail $ "There are some fields that are required but not present: " ++ show obj
 
 postprocessParserResult :: ParserResult -> ParserResult
-postprocessParserResult pr@(ParserResult _ []) = pr
-postprocessParserResult (ParserResult s [x]) =
-    ParserResult s $ [Data.Bifunctor.first takeFileName x]
 postprocessParserResult (ParserResult mp incs) =
     ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . stripPathPrefix) go <$> incs
   where
-    lcp = LCP.commonPrefix $ split '/' . fst <$> incs
-    stripPathPrefix y = mconcat . intersperse "/" <$> stripPrefix lcp (split '/' y)
+    stripPathPrefix y =
+        case incs of
+            [] -> Just $ takeBaseName y
+            [_] -> Just $ takeBaseName y
+            _ ->
+                let lcp = LCP.commonPrefix $ split '/' . fst <$> incs
+                 in mconcat . intersperse "/" <$> stripPrefix lcp (split '/' y)
     go :: ModuleParts -> ModuleParts
     go mp'
         | TR.ProdType km <- tr = mpu' & declaration .~ (TR.ProdType $ mapTypeRef <$> km)
@@ -265,14 +266,14 @@ replaceDashesWithUnderscores (ParserResult mp deps) =
     go (ModuleParts m_s set km tr) = ModuleParts {..}
       where
         _jsTitle = transform <$> m_s
-        _localDeps = KM.mapKeyVal (fromString . transform . K.toString) go km
+        _localDeps = Map.mapKeys transform . Map.map go $ km
         _externalDeps = Set.map transform set
         _declaration = transformTypeRep tr
     transformTypeRep :: TR.TypeRep -> TR.TypeRep
     transformTypeRep (TR.ProdType km) =
-        TR.ProdType $ KM.mapKeyVal (fromString . transform . K.toString) transfromTypeRef km
+        TR.ProdType $ Map.mapKeys transform . Map.map transfromTypeRef $ km
     transformTypeRep (TR.SumType km) =
-        TR.SumType $ KM.mapKeyVal (fromString . transform . K.toString) transfromTypeRef km
+        TR.SumType $ Map.mapKeys transform . Map.map transfromTypeRef $ km
     transformTypeRep (TR.ArrayType tr') = TR.ArrayType $ transfromTypeRef tr'
     transformTypeRep (TR.NewType s tr') = TR.NewType (transform s) $ transfromTypeRef tr'
     transformTypeRep (TR.Ref (TR.RefExternalType nm)) =

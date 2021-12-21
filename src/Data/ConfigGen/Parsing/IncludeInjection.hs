@@ -1,9 +1,9 @@
 module Data.ConfigGen.Parsing.IncludeInjection where
 
-import           Control.Exception (handleJust, throwIO)
-import           Data.Foldable     (traverse_)
+import Control.Exception (handleJust, throwIO)
+import Data.Foldable     (traverse_)
 
-import Control.Monad              (guard, when)
+import Control.Monad (guard, when)
 
 import qualified Data.Text          as T
 import qualified Data.Text.Encoding as T
@@ -13,17 +13,13 @@ import Data.Yaml (ParseException (..), YamlException (..))
 import qualified Text.Libyaml as Y
 import           Text.Libyaml (Event (..), Style (..), Tag (..))
 
-
 import           Conduit           (MonadIO (liftIO), MonadResource, await)
 import           Data.Conduit      (ConduitM, awaitForever, yield, (.|))
 import qualified Data.Conduit.List as CL
 
-import System.Directory     (canonicalizePath)
-import System.FilePath      (takeDirectory, (</>))
-import System.IO.Error      (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
-
-
-
+import System.Directory (canonicalizePath)
+import System.FilePath  (takeDirectory, (</>))
+import System.IO.Error  (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
 
 eventsFromFile :: MonadResource m => FilePath -> ConduitM i Event m ()
 eventsFromFile = go [] []
@@ -36,7 +32,9 @@ eventsFromFile = go [] []
             awaitForever $ \event ->
                 case event of
                     EventScalar f (UriTag "!include") _ _ -> do
-                        let includeFile = takeDirectory cfp </> T.unpack (T.decodeUtf8 f)
+                        includeFile <-
+                            liftIO $
+                            canonicalizePath $ takeDirectory cfp </> T.unpack (T.decodeUtf8 f)
                         let injectedEvents' =
                                 [ EventScalar "haskell/origin" NoTag Plain Nothing
                                 , EventScalar

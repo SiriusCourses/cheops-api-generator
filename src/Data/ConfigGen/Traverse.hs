@@ -1,6 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Data.ConfigGen.Traverse where
+module Data.ConfigGen.Traverse
+    ( build
+    ) where
 
 import Control.Monad.Except       (Except, MonadError (..), runExcept)
 import Control.Monad.Reader       (MonadReader (..), ReaderT (..), asks, local, withReaderT)
@@ -10,17 +12,12 @@ import           Data.Bifunctor  (bimap)
 import qualified Data.Bifunctor
 import           Data.Coerce     (coerce)
 import           Data.List       (foldl', intersperse)
-import qualified Data.Map.Strict as M
 import           Data.Maybe      (catMaybes)
 import           Data.Set        (Set)
 import qualified Data.Set        as Set
 import           Data.String     (fromString)
 import           System.FilePath (dropExtension, (<.>), (</>))
 import           Util            (capitalise, singleton, split)
-
-import qualified Data.Aeson.Key    as K
-import           Data.Aeson.KeyMap (KeyMap)
-import qualified Data.Aeson.KeyMap as KM
 
 import           Data.ConfigGen.Parsing       (ParserResult (ParserResult), Title)
 import qualified Data.ConfigGen.Traverse.Hylo as Hylo
@@ -31,7 +28,10 @@ import Data.Function ((&))
 import GHC.SourceGen (App ((@@)), ConDecl', Field, HsDecl', HsModule', ImportDecl', Var (var),
                       data', field, import', module', newtype', prefixCon, qualified',
                       recordCon, strict, type')
-import Debug.Trace (trace)
+
+import           Data.Map    (Map)
+import qualified Data.Map    as Map
+
 
 type ModulePrefix = [String]
 
@@ -46,14 +46,14 @@ data Dep a
 
 newtype GeneratorState =
     GeneratorState
-        { includes :: KeyMap (Dep ModuleParts)
+        { includes :: Map FilePath (Dep ModuleParts)
         }
     deriving newtype (Semigroup, Monoid, Show)
 
 type Ctx a = ReaderT ModulePrefix (StateT GeneratorState (Except String)) a
 
 data NodeF a s
-    = Local a (KeyMap s)
+    = Local a (Map ModuleName s)
     | Leaf a
 
 getPayload :: NodeF a s -> a
@@ -63,7 +63,7 @@ getPayload (Leaf p)    = p
 data Payload =
     Payload
         { title        :: Maybe String
-        , externalDeps :: Set ModuleName
+        , externalDeps :: Set FilePath
         , typeRep      :: TypeRep
         }
 
@@ -78,51 +78,44 @@ breakDown (ModuleParts _jsTitle _externalDeps _localDeps _declaration)
   where
     payload = Payload _jsTitle _externalDeps _declaration
 
-buildUp :: Hylo.Algebra (NodeF Payload) (Ctx (KeyMap HsModule'))
+buildUp :: Hylo.Algebra (NodeF Payload) (Ctx (Map FilePath HsModule'))
 buildUp node = do
     let p@(Payload title externalDeps _) = getPayload node
-    extDeps <- mconcat <$> (traverse buildExternalDep $ (Set.toList externalDeps))
-    path <- asks $ K.fromString . extractPath title
-    (fullModuleName, declName) <- asks $ extractFullPackageName title
-    appendLocalDeps <-
+    localDeps <-
         case node of
             Local _ km -> do
                 built <-
-                    fmap (KM.foldl' (<>) mempty) . sequence $
-                    KM.fromMap . M.mapWithKey (withReaderT . updatePrefix title) . KM.toMap $
-                    km
-                return $ (<> built)
-            Leaf _ -> return id
-    return . (<> extDeps) . appendLocalDeps . KM.singleton path $
-        buildModule fullModuleName declName p
+                    fmap (Map.foldl' (<>) mempty) . sequence $
+                    Map.mapWithKey (withReaderT . updatePrefix title) $ km
+                return built
+            Leaf _ -> return mempty
+    extDeps <- mconcat <$> (traverse buildExternalDep $ (Set.toList externalDeps))
+    path <- asks $ extractPath title
+    (fullModuleName, declName) <- asks $ extractFullPackageName title
+    let newModule = buildModule fullModuleName declName p
+    return $ Map.singleton path newModule <> extDeps <> localDeps
 
-updatePrefix :: Maybe Title -> K.Key -> ModulePrefix -> ModulePrefix
-updatePrefix (Just title) fieldName [] =
-    [capitalise . K.toString $ fieldName, capitalise title]
-updatePrefix _ fieldName prefix = (capitalise . K.toString $ fieldName) : prefix
+updatePrefix :: Maybe Title -> TR.FieldName -> ModulePrefix -> ModulePrefix
+updatePrefix (Just title) fieldName [] = [capitalise $ fieldName, capitalise fieldName]
+updatePrefix _ fieldName prefix        = (capitalise $ fieldName) : prefix
 
 extractPath :: Maybe Title -> ModulePrefix -> FilePath
-extractPath Nothing prefix = (foldl' (</>) mempty . reverse $ prefix) <.> "hs"
-extractPath (Just title) prefix =
-    (foldl' (</>) mempty . reverse . drop 1 $ prefix) </> capitalise title <.> "hs"
+extractPath _ prefix = (foldl' (</>) mempty . reverse $ prefix) <.> "hs"
+-- extractPath (Just title) prefix =
+--     (foldl' (</>) mempty . reverse . drop 1 $ prefix) </> capitalise title <.> "hs"
 
 extractFullPackageName :: Maybe Title -> ModulePrefix -> (PackageName, DeclName)
-extractFullPackageName Nothing prefix =
+extractFullPackageName _ prefix =
     (mconcat . intersperse "." . reverse $ prefix, takeHeadOrFail prefix)
   where
     takeHeadOrFail (x:_) = x
     takeHeadOrFail _     = "Unnamed" -- error "Prefix is emtpy, no Name to give"
-extractFullPackageName (Just title) prefix =
-    ( mconcat . intersperse "." $ reverse (capitalise title : drop 1 prefix)
-    , capitalise $ title)
+-- extractFullPackageName (Just title) prefix =
+--     ( mconcat . intersperse "." $ reverse (capitalise title : drop 1 prefix)
+--     , capitalise $ title)
 
 pathToModuleName :: String -> String
 pathToModuleName s = (mconcat . intersperse "." $ capitalise <$> split '/' s) & dropExtension
-
--- It might be fairly easy to analyse TypeRef for primitive ref usage and then there will be no need for this.
-defaultImports :: [ImportDecl']
-defaultImports =
-    qualified' . import' . fromString <$> ["GHC.Types", "GHC.Int", "Data.Text", "Data.Vector"]
 
 buildModule :: PackageName -> DeclName -> Payload -> HsModule'
 buildModule pkgName declName Payload {..} =
@@ -130,16 +123,20 @@ buildModule pkgName declName Payload {..} =
         extImports =
             qualified' . import' . fromString . pathToModuleName <$> Set.toList externalDeps
         (decls, locImports) = Data.Bifunctor.first singleton $ go typeRep
+        defaultImports =
+            qualified' . import' . fromString <$>
+            ["GHC.Types", "GHC.Int", "Data.Text", "Data.Vector"]
      in module'
             (Just . fromString $ pkgName)
             exports
             (extImports <> locImports <> defaultImports)
             decls
   where
-    typeRefToQualTypeName (TR.ReferenceToExternalType s) =
-        TR.moduleNmToQualTypeName . dropExtension $ s
+    typeRefToQualTypeName (TR.ReferenceToExternalType absPath) =
+        TR.moduleNmToQualTypeName . pathToModuleName $ absPath
     typeRefToQualTypeName (TR.ReferenceToLocalType s) =
-        ((pkgName <> ".") <>) . capitalise $ TR.moduleNmToQualTypeName s
+        let baseTypeName = capitalise $ TR.moduleNmToQualTypeName s
+         in pkgName <> "." <> baseTypeName
     typeRefToQualTypeName (TR.ReferenceToPrimitiveType s) = s
     go :: TypeRep -> (HsDecl', [ImportDecl'])
     go tr
@@ -148,19 +145,18 @@ buildModule pkgName declName Payload {..} =
         | (TR.SumType km) <- tr =
             (, locDepsFromRecordLike km) $ data' (fromString declName) [] (buildSumCon's km) []
       where
-        buildProdCon :: KeyMap TR.TypeRef -> ConDecl'
+        buildProdCon :: Map TR.FieldName TR.TypeRef -> ConDecl'
         buildProdCon km =
             recordCon (fromString declName) $
-            (bimap (fromString . changeReservedNames . K.toString) (fieldFromReference)) <$>
-            KM.toList km
-        buildSumCon's :: KeyMap TR.TypeRef -> [ConDecl']
+            (bimap (fromString . changeReservedNames) (fieldFromReference)) <$> Map.toList km
+        buildSumCon's :: Map TR.FieldName TR.TypeRef -> [ConDecl']
         buildSumCon's km =
             let constructorFromPair k v =
-                    prefixCon (fromString . changeReservedNames . K.toString $ k) $
+                    prefixCon (fromString . changeReservedNames $ k) $
                     singleton . fieldFromReference $ v
-             in (uncurry constructorFromPair) <$> KM.toList km
-        locDepsFromRecordLike :: KeyMap TR.TypeRef -> [ImportDecl']
-        locDepsFromRecordLike km = catMaybes $ typeRefToLocalDeps . snd <$> KM.toList km
+             in (uncurry constructorFromPair) <$> Map.toList km
+        locDepsFromRecordLike :: Map TR.FieldName TR.TypeRef -> [ImportDecl']
+        locDepsFromRecordLike km = catMaybes $ typeRefToLocalDeps . snd <$> Map.toList km
           where
             typeRefToLocalDeps :: TR.TypeRef -> Maybe ImportDecl'
             typeRefToLocalDeps (TR.ExtRef _nlr) = Nothing
@@ -209,10 +205,10 @@ buildModule pkgName declName Payload {..} =
             ((var . fromString $ declName) @@
              (var . fromString . capitalise . TR.moduleNmToQualTypeName $ (mn & dropExtension)))
 
-buildExternalDep :: ModuleName -> Ctx (KeyMap HsModule')
+buildExternalDep :: ModuleName -> Ctx (Map FilePath HsModule')
 buildExternalDep moduleName = do
     state' <- get
-    let moduleToBuild = KM.lookup (fromString moduleName) (includes state')
+    let moduleToBuild = Map.lookup (fromString moduleName) (includes state')
     case moduleToBuild of
         Nothing ->
             throwError $
@@ -220,27 +216,29 @@ buildExternalDep moduleName = do
             show moduleName ++ " did not find it among includes " ++ show state'
         Just Built -> return mempty
         Just (ToBuild yetTobuild) -> do
+            let modulePrefix =
+                    capitalise <$> (reverse $ split '/' (moduleName & dropExtension))
             let (newState :: GeneratorState) =
-                    coerce . KM.delete (fromString moduleName) $
-                    (coerce state' :: KeyMap (Dep ModuleParts))
+                    coerce . Map.delete (fromString moduleName) $
+                    (coerce state' :: Map FilePath (Dep ModuleParts))
             put newState
-            builtModules <- local (const mempty) $ modulePartsToModules yetTobuild
+            builtModules <- local (const modulePrefix) $ modulePartsToModules yetTobuild
             modify $ \incs ->
-                GeneratorState $ KM.insert (fromString moduleName) Built $ coerce incs
+                GeneratorState $ Map.insert (fromString moduleName) Built $ coerce incs
             return builtModules
 
-buildOrphanDeps :: Ctx (KeyMap HsModule')
+buildOrphanDeps :: Ctx (Map FilePath HsModule')
 buildOrphanDeps = do
-    nms <- fmap (K.toString . fst) . filter f . KM.toList . includes <$> get
+    nms <- fmap fst . filter f . Map.toList . includes <$> get
     mconcat <$> (traverse buildExternalDep $ nms)
   where
     f (_, ToBuild _) = True
     f (_, Built)     = False
 
-modulePartsToModules :: ModuleParts -> Ctx (KeyMap HsModule')
+modulePartsToModules :: ModuleParts -> Ctx (Map FilePath HsModule')
 modulePartsToModules = Hylo.hylo breakDown buildUp
 
-build :: ParserResult -> Either String (KeyMap HsModule')
+build :: ParserResult -> Either String (Map FilePath HsModule')
 build (ParserResult mp deps) = do
     (km, _) <-
         runExcept $
@@ -248,7 +246,7 @@ build (ParserResult mp deps) = do
             (runReaderT
                  (do res <- modulePartsToModules mp
                      orphKM <- buildOrphanDeps
-                     trace ("appended hsmodules: " ++ show (KM.keys orphKM)) return $ res <> orphKM)
+                     return $ res <> orphKM)
                  mempty) $
-        GeneratorState . KM.fromList $ Data.Bifunctor.bimap fromString ToBuild <$> deps
+        GeneratorState . Map.fromList $ Data.Bifunctor.bimap fromString ToBuild <$> deps
     return km

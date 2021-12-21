@@ -15,6 +15,7 @@ module Data.ConfigGen.TypeRep
     , NonLocalRef(..)
     , LocalReference(..)
     , ModuleName
+    , FieldName
     , appendToTypeRep
     , isLocal
     , getReference
@@ -24,16 +25,17 @@ module Data.ConfigGen.TypeRep
     ) where
 
 import           Control.Lens      (makeLenses)
-import           Data.Aeson.Key    (Key)
-import           Data.Aeson.KeyMap (KeyMap)
-import qualified Data.Aeson.KeyMap as KM
 import           Data.Set          (Set)
 import           GHC.Generics      (Generic)
 
 import Data.Yaml (ToJSON)
 import Util      (capitalise, split)
 
+import Data.Map (Map)
+import qualified Data.Map as Map
+
 type ModuleName = String
+type FieldName = String
 
 data TypeRef
     = ExtRef NonLocalRef
@@ -76,8 +78,8 @@ data NonLocalRef
     deriving anyclass (ToJSON)
 
 data TypeRep
-    = ProdType (KeyMap TypeRef)
-    | SumType (KeyMap TypeRef)
+    = ProdType (Map FieldName TypeRef)
+    | SumType (Map FieldName TypeRef)
     | ArrayType TypeRef
     | NewType String TypeRef
     -- Here will go allOf, anyOf, oneOf
@@ -85,11 +87,11 @@ data TypeRep
     deriving (Show, Eq, Generic)
     deriving anyclass (ToJSON)
 
-appendToTypeRep :: TypeRep -> Key -> TypeRef -> TypeRep
+appendToTypeRep :: TypeRep -> FieldName -> TypeRef -> TypeRep
 appendToTypeRep typeRep k tr =
     case typeRep of
-        ProdType km       -> ProdType $ KM.insert k tr km
-        SumType km        -> SumType $ KM.insert k tr km
+        ProdType km       -> ProdType $ Map.insert k tr km
+        SumType km        -> SumType $ Map.insert k tr km
         nt@(NewType _ _)  -> nt
         arr@(ArrayType _) -> arr
         Ref tr'           -> Ref tr'
@@ -106,8 +108,8 @@ isExtDep _                         = False
 data ModuleParts =
     ModuleParts
         { _jsTitle      :: Maybe String
-        , _externalDeps :: Set ModuleName
-        , _localDeps    :: KeyMap ModuleParts
+        , _externalDeps :: Set FilePath
+        , _localDeps    :: Map ModuleName ModuleParts
         , _declaration  :: TypeRep
         }
     deriving (Show, Eq, Generic)
@@ -121,3 +123,4 @@ getReference _                                                      = Nothing
 
 moduleNmToQualTypeName :: ModuleName -> String
 moduleNmToQualTypeName mn = mn ++ "." ++ (capitalise . last $ split '.' mn)
+

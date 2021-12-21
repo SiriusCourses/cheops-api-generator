@@ -5,14 +5,11 @@ module Main where
 
 import qualified Data.Bifunctor
 import           Data.Foldable  (Foldable (foldl'), traverse_)
-import           Data.String    (IsString (fromString))
+import qualified Data.Map       as Map
 
 import Data.Yaml (decodeHelper)
 
-import qualified Data.Aeson.Key    as K
-import qualified Data.Aeson.KeyMap as KM
-
-import System.Directory     (createDirectoryIfMissing)
+import System.Directory     (canonicalizePath, createDirectoryIfMissing)
 import System.FilePath      (takeDirectory, (</>))
 import System.FilePath.Find (always, extension, find, (==?))
 
@@ -21,12 +18,15 @@ import GHC.Paths     (libdir)
 import GHC.SourceGen (HsModule', showPpr)
 
 import qualified CLI
-import           Data.ConfigGen.Parsing 
-import           Data.ConfigGen.Traverse
+import           Data.ConfigGen.Parsing
+import           Data.ConfigGen.Traverse (build)
 
 import Control.Monad                           (when)
 import Data.ConfigGen.Parsing.IncludeInjection (eventsFromFile)
-import Data.Either                             (isLeft, isRight, fromRight)
+import Data.Either                             (fromRight, isLeft, isRight)
+import Data.List.Utils                         (replace)
+import Data.ConfigGen.TypeRep (ModuleParts(ModuleParts))
+import qualified Data.ConfigGen.TypeRep as TR
 
 newtype GeneratedModules =
     GeneratedModules
@@ -35,7 +35,9 @@ newtype GeneratedModules =
     deriving newtype (Semigroup, Monoid)
 
 collectFiles :: FilePath -> IO [FilePath]
-collectFiles = find always (extension ==? ".yaml")
+collectFiles path = do
+    files <- find always (extension ==? ".yaml") path
+    traverse canonicalizePath files
 
 main :: IO ()
 main = do
@@ -44,39 +46,37 @@ main = do
         case chInput of
             CLI.File s -> return [s]
             CLI.Dir s  -> collectFiles s
-    traverse_ putStrLn files
+    -- traverse_ putStrLn files
     content <-
         sequence <$> traverse (\t -> decodeHelper @ParserResult (eventsFromFile t)) files
     case content of
         Left pe -> print pe
         Right x0 -> do
             res <- extractParsedModules x0 files
-            when chDebug $ print "-- resulting parser output:"
+            when chDebug $ putStrLn "-- resulting parser output:"
             when chDebug $ print res
             when (null res) $
                 fail
                     ("No files are successfully parsed. Content looks like this: " ++
                      show content)
-            let ini = snd . head $ res
-            let acc = replaceDashesWithUnderscores . postprocessParserResult . foldl' combineParserResults ini $ tail res
-            when chDebug $ print "-- accumulated parser results"
+            let ini = ParserResult (ModuleParts (Just "dummy") mempty mempty (TR.Ref . TR.RefPrimitiveType $ "Int") ) mempty
+            let acc = replaceDashesWithUnderscores . postprocessParserResult $ foldl' combineParserResults ini res
+            when chDebug $ putStrLn "-- accumulated parser results"
             when chDebug $ print acc
             let b = build acc
-            when chDebug $ print "-- Built Modules:"
-            when chDebug $ print . KM.keys $ fromRight mempty b
+            when chDebug $ putStrLn "-- Built Modules:"
+            when chDebug $ print . Map.keys $ fromRight mempty b
             case b of
-                Left s -> fail s
-                Right km ->
-                    saveModule $
-                    Data.Bifunctor.first ((chOutput </>) . K.toString) <$> KM.toList km
+                Left s   -> fail s
+                Right km -> saveModule $ Data.Bifunctor.first (chOutput </>) <$> Map.toList km
   where
     combineParserResults :: ParserResult -> (FilePath, ParserResult) -> ParserResult
     combineParserResults (ParserResult mainType deps) (p, ParserResult mainType' deps') =
-        ParserResult mainType' newDeps
+        ParserResult mainType newDeps
       where
-        newDeps = fromKM . KM.insert (fromString p) mainType $ (toKM deps) <> (toKM deps')
-        toKM x = KM.fromList $ Data.Bifunctor.first fromString <$> x
-        fromKM x = Data.Bifunctor.first K.toString <$> KM.toList x
+        newDeps = fromKM . Map.insert p mainType' $ (toKM deps) <> (toKM deps')
+        toKM = Map.fromList
+        fromKM = Map.toList
     extractParsedModules ::
            Show a
         => [([a], Either String ParserResult)]
