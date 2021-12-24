@@ -23,7 +23,7 @@ import           Data.ConfigGen.Traverse.Utils (Title)
 import qualified Data.ConfigGen.Traverse.Utils as U
 import           Data.ConfigGen.TypeRep        (ModuleParts (..))
 import qualified Data.ConfigGen.TypeRep        as TR
-import           Data.List                     (intersperse, stripPrefix)
+import           Data.List                     (intersperse, stripPrefix, (\\))
 import           Data.List.Utils               (split)
 import           Data.Map                      (Map)
 import qualified Data.Map                      as Map
@@ -70,7 +70,7 @@ instance FromJSON ParserResult where
     parseJSON invalid = prependFailure failMsg $ typeMismatch "Parsed Types" invalid
       where
         failMsg =
-            "parsing of JSON-scheme failed, probably encoured something wrong or somewhere wrong"
+            "parsing of JSON-scheme failed, expected object encountered something else."
 
 parseDispatch :: Object -> StatefulParser ModuleParts
 parseDispatch obj = do
@@ -176,7 +176,11 @@ parseRecordLike obj typeTag title = do
     checkRequired reqs properties =
         if all (`Map.member` properties) reqs
             then return properties
-            else fail $ "There are some fields that are required but not present: " ++ show obj
+            else fail $
+                 "There are some fields in " ++
+                 fromMaybe "Unnamed" title ++
+                 " that are required but not present: " ++
+                 (mconcat . intersperse ", " $ reqs \\ Map.keys properties) 
 
 postprocessParserResult :: ParserResult -> ParserResult
 postprocessParserResult (ParserResult mp incs) =

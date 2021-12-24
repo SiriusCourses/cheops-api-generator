@@ -179,7 +179,7 @@ buildOrphanDeps = do
     f (_, Built)     = False
 
 modulePartsToModules :: ModuleParts -> Ctx (Map FilePath HsModule')
-modulePartsToModules = Hylo.hylo breakDown buildUp
+modulePartsToModules mp = Hylo.hylo breakDown buildUp mp
 
 build :: ParserResult -> Either String (Map FilePath HsModule')
 build  (ParserResult _ deps) = do

@@ -4,7 +4,7 @@
 module Main where
 
 import qualified Data.Bifunctor
-import           Data.Foldable  (Foldable (foldl'), traverse_)
+import           Data.Foldable  (Foldable (foldl'), for_, traverse_)
 import qualified Data.Map       as Map
 
 import Data.Yaml (decodeHelper)
@@ -26,7 +26,7 @@ import           Control.Monad                           (unless, when)
 import           Data.ConfigGen.Parsing.IncludeInjection (eventsFromFile)
 import           Data.ConfigGen.TypeRep                  (ModuleParts (ModuleParts))
 import qualified Data.ConfigGen.TypeRep                  as TR
-import           Data.Either                             (fromRight, isLeft, isRight)
+import           Data.Either                             (fromRight, isLeft, isRight, lefts)
 
 newtype GeneratedModules =
     GeneratedModules
@@ -46,7 +46,6 @@ main = do
         case chInput of
             CLI.File s -> return [s]
             CLI.Dir s  -> collectFiles s
-    -- traverse_ putStrLn files
     content <- sequence <$> traverse (decodeHelper @ParserResult . eventsFromFile) files
     case content of
         Left pe -> print pe
@@ -91,16 +90,22 @@ main = do
         -> [FilePath]
         -> IO [(FilePath, ParserResult)]
     extractParsedModules x0 paths = do
-        traverse_
-            (\x -> do
-                 unless (null . fst $ x) (print . fst $ x)
-                 when (isLeft . snd $ x) $ print x)
-            x0
+        printErrorsAndWarnings (zip paths x0)
         let res =
                 map (\(p, Right r) -> (p, r)) .
                 filter (\(_, q) -> isRight q) . zip paths . map snd $
                 x0
         return res
+      where
+        printErrorsAndWarnings data' = do
+            for_ data' $ \(path, (ws, err')) -> do
+                when (not (null ws) || isLeft err') $ putStrLn path
+                unless (null ws) $ do
+                    putStrLn "Warnings:"
+                    traverse_ print ws
+                when (isLeft err') $ do
+                    putStrLn "Errors:"
+                    print (head $ lefts [err'])
     saveModule :: [(FilePath, HsModule')] -> IO ()
     saveModule km = traverse_ (uncurry saveFile) km
       where
