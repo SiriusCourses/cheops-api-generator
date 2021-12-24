@@ -18,15 +18,15 @@ import GHC.Paths     (libdir)
 import GHC.SourceGen (HsModule', showPpr)
 
 import qualified CLI
-import           Data.ConfigGen.Parsing
+import           Data.ConfigGen.Parsing  (ParserResult (..), postprocessParserResult,
+                                          replaceDashesWithUnderscores)
 import           Data.ConfigGen.Traverse (build)
 
-import Control.Monad                           (when)
-import Data.ConfigGen.Parsing.IncludeInjection (eventsFromFile)
-import Data.Either                             (fromRight, isLeft, isRight)
-import Data.List.Utils                         (replace)
-import Data.ConfigGen.TypeRep (ModuleParts(ModuleParts))
-import qualified Data.ConfigGen.TypeRep as TR
+import           Control.Monad                           (unless, when)
+import           Data.ConfigGen.Parsing.IncludeInjection (eventsFromFile)
+import           Data.ConfigGen.TypeRep                  (ModuleParts (ModuleParts))
+import qualified Data.ConfigGen.TypeRep                  as TR
+import           Data.Either                             (fromRight, isLeft, isRight)
 
 newtype GeneratedModules =
     GeneratedModules
@@ -47,8 +47,7 @@ main = do
             CLI.File s -> return [s]
             CLI.Dir s  -> collectFiles s
     -- traverse_ putStrLn files
-    content <-
-        sequence <$> traverse (\t -> decodeHelper @ParserResult (eventsFromFile t)) files
+    content <- sequence <$> traverse (decodeHelper @ParserResult . eventsFromFile) files
     case content of
         Left pe -> print pe
         Right x0 -> do
@@ -59,8 +58,17 @@ main = do
                 fail
                     ("No files are successfully parsed. Content looks like this: " ++
                      show content)
-            let ini = ParserResult (ModuleParts (Just "dummy") mempty mempty (TR.Ref . TR.RefPrimitiveType $ "Int") ) mempty
-            let acc = replaceDashesWithUnderscores . postprocessParserResult $ foldl' combineParserResults ini res
+            let ini =
+                    ParserResult
+                        (ModuleParts
+                             (Just "dummy")
+                             mempty
+                             mempty
+                             (TR.Ref . TR.RefPrimitiveType $ "Int"))
+                        mempty
+            let acc =
+                    replaceDashesWithUnderscores . postprocessParserResult $
+                    foldl' combineParserResults ini res
             when chDebug $ putStrLn "-- accumulated parser results"
             when chDebug $ print acc
             let b = build acc
@@ -74,7 +82,7 @@ main = do
     combineParserResults (ParserResult mainType deps) (p, ParserResult mainType' deps') =
         ParserResult mainType newDeps
       where
-        newDeps = fromKM . Map.insert p mainType' $ (toKM deps) <> (toKM deps')
+        newDeps = fromKM . Map.insert p mainType' $ toKM deps <> toKM deps'
         toKM = Map.fromList
         fromKM = Map.toList
     extractParsedModules ::
@@ -85,18 +93,16 @@ main = do
     extractParsedModules x0 paths = do
         traverse_
             (\x -> do
-                 when (not . null . fst $ x) (print . fst $ x)
-                 if isLeft . snd $ x
-                     then print x
-                     else return ())
+                 unless (null . fst $ x) (print . fst $ x)
+                 when (isLeft . snd $ x) $ print x)
             x0
         let res =
                 map (\(p, Right r) -> (p, r)) .
-                filter (\(_, q) -> isRight q) . zipWith (,) paths . map snd $
+                filter (\(_, q) -> isRight q) . zip paths . map snd $
                 x0
         return res
     saveModule :: [(FilePath, HsModule')] -> IO ()
-    saveModule km = traverse_ (uncurry saveFile) $ km
+    saveModule km = traverse_ (uncurry saveFile) km
       where
         saveFile :: String -> HsModule' -> IO ()
         saveFile path md = do
