@@ -58,6 +58,7 @@ dependencies:
 - filemanip
 - MissingH
 - casing
+- scientific
 
 ghc-options:
 - -Wincomplete-patterns
@@ -75,7 +76,7 @@ library:
   source-dirs: 
   - src
   # - generated
-  # - generated-api
+  # - generated-api/src
 
 executables:
   config-generation-exe:
