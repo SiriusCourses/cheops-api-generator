@@ -18,6 +18,9 @@ module Data.ConfigGen.TypeRep
     , FieldName
     , TypeName
     , appendToTypeRep
+    , Field(..)
+    , SumConstr
+    , SumConstrF(..)
     ) where
 
 import Control.Lens (makeLenses)
@@ -53,12 +56,29 @@ data NonLocalRef
     deriving (Show, Eq, Generic)
     deriving anyclass (ToJSON)
 
+data Field =
+    Field Bool TypeRef
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON)
+
+type SumConstr = SumConstrF Field
+
+newtype SumConstrF a =
+    SumConstr
+        { unSumConstr :: [a]
+        }
+    deriving (Show, Eq, Generic)
+    deriving newtype (Functor, Applicative, Monad)
+    deriving anyclass (ToJSON)
+
 data TypeRep
-    = ProdType (Map FieldName TypeRef)
-    | SumType (Map FieldName TypeRef)
+    = ProdType (Map FieldName Field)
+    | SumType (Map FieldName SumConstr)
+    | AnyOf 
+    | OneOf 
+    | AllOf 
     | ArrayType TypeRef
     | NewType TypeRef
-    -- Here will go allOf, anyOf, oneOf
     | Ref NonLocalRef
     deriving (Show, Eq, Generic)
     deriving anyclass (ToJSON)
@@ -80,14 +100,14 @@ pattern ReferenceToPrimitiveType s = ExtRef (RefPrimitiveType s)
 {-# COMPLETE ReferenceToLocalType, ReferenceToExternalType,
   ReferenceToPrimitiveType #-}
 
-appendToTypeRep :: TypeRep -> FieldName -> TypeRef -> TypeRep
+appendToTypeRep :: TypeRep -> FieldName -> Field -> TypeRep
 appendToTypeRep typeRep k tr =
     case typeRep of
         ProdType km       -> ProdType $ Map.insert k tr km
-        SumType km        -> SumType $ Map.insert k tr km
-        nt@(NewType _)  -> nt
+        SumType km        -> SumType $ Map.insert k (SumConstr [tr]) km
+        nt@(NewType _)    -> nt
         arr@(ArrayType _) -> arr
-        Ref tr'           -> Ref tr'
+        _x                -> _x
 
 data ModuleParts =
     ModuleParts

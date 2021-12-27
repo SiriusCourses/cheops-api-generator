@@ -2,8 +2,8 @@
 {-# LANGUAGE ViewPatterns    #-}
 
 module Data.ConfigGen.JSTypes
-    ( TypeTag(.., Primitive, RecordLike, ObjectTag, EnumTag, NumberTag,
-        StringTag, NullTag, BoolTag)
+    ( TypeTag(.., Primitive, RecordLike, ObjectTag, EnumTag, IntTag,
+        DoubleTag, StringTag, NullTag, BoolTag)
     , parseTypeTag
     , RecordLikeTag(..)
     , PrimitiveTag(..)
@@ -14,12 +14,13 @@ data TypeTag
     | Prim PrimitiveTag
     | ArrayTag
 
-{-# COMPLETE ArrayTag, StringTag, NumberTag, BoolTag, NullTag,
-  ObjectTag, EnumTag #-}
+{-# COMPLETE ArrayTag, StringTag, IntTag, DoubleTag, BoolTag,
+  NullTag, ObjectTag, EnumTag #-}
 
 data PrimitiveTag
     = PrimStringTag
-    | PrimNumberTag
+    | PrimIntTag
+    | PrimDoubleTag
     | PrimBoolTag
     | PrimNullTag
 
@@ -39,9 +40,13 @@ pattern StringTag :: TypeTag
 
 pattern StringTag = Prim PrimStringTag
 
-pattern NumberTag :: TypeTag
+pattern IntTag :: TypeTag
 
-pattern NumberTag = Prim PrimNumberTag
+pattern IntTag = Prim PrimIntTag
+
+pattern DoubleTag :: TypeTag
+
+pattern DoubleTag = Prim PrimDoubleTag
 
 pattern BoolTag :: TypeTag
 
@@ -71,8 +76,8 @@ parseTypeTag :: String -> Maybe TypeTag
 parseTypeTag "array"   = Just ArrayTag
 parseTypeTag "object"  = Just ObjectTag
 parseTypeTag "enum"    = Just EnumTag
-parseTypeTag "number"  = Just NumberTag
-parseTypeTag "integer"  = Just NumberTag
+parseTypeTag "number"  = Just DoubleTag
+parseTypeTag "integer" = Just IntTag
 parseTypeTag "string"  = Just StringTag
 parseTypeTag "text"    = Just StringTag
 parseTypeTag "bool"    = Just BoolTag

@@ -10,11 +10,10 @@ import Control.Monad.State.Strict (MonadState (..), StateT (..), modify)
 
 import           Data.Bifunctor (bimap)
 import           Data.Coerce    (coerce)
-import           Data.Maybe     (mapMaybe)
+import           Data.Maybe     (catMaybes, mapMaybe)
 import           Data.Set       (Set)
 import qualified Data.Set       as Set
 import           Data.String    (fromString)
-import           Util           (singleton)
 
 import           Data.ConfigGen.Parsing        (ParserResult (ParserResult))
 import qualified Data.ConfigGen.Traverse.Hylo  as Hylo
@@ -22,13 +21,14 @@ import qualified Data.ConfigGen.Traverse.Utils as U
 import           Data.ConfigGen.TypeRep        (ModuleName, ModuleParts (..), TypeRep)
 import qualified Data.ConfigGen.TypeRep        as TR
 
-import GHC.SourceGen (ConDecl', HsDecl', HsModule', ImportDecl', Var (var), data', field,
-                      import', module', newtype', prefixCon, qualified', recordCon, strict,
-                      type', (@@))
+import GHC.SourceGen (ConDecl', Field, HsDecl', HsModule', HsType', ImportDecl', Var (var),
+                      data', field, import', module', newtype', prefixCon, qualified',
+                      recordCon, strict, type', (@@))
 
-import           Data.Foldable   (toList)
-import           Data.Map        (Map)
-import qualified Data.Map        as Map
+import           Control.Monad ((<=<))
+import           Data.Foldable (toList)
+import           Data.Map      (Map)
+import qualified Data.Map      as Map
 
 data Dep a
     = Built
@@ -89,9 +89,7 @@ buildModule Payload {..} prefix =
             qualified' . import' . fromString . U.prefixToModuleName . U.pathToPrefix <$>
             Set.toList externalDeps
         exports = Nothing
-        defaultImports =
-            qualified' . import' . fromString <$>
-            ["GHC.Types", "GHC.Int", "Data.Text", "Data.Vector"]
+        defaultImports = qualified' . import' . fromString <$> U.defaultImportNames
      in module'
             (Just . fromString $ U.prefixToModuleName prefix)
             exports
@@ -102,48 +100,69 @@ buildModule Payload {..} prefix =
     typename = U.prefixToTypeName prefix title
     gatherLocalImports :: TR.TypeRep -> [ImportDecl']
     gatherLocalImports tr
-        | (TR.ProdType map') <- tr = gather map'
-        | (TR.SumType map') <- tr = gather map'
+        | TR.OneOf <- tr = mempty
+        | TR.AllOf <- tr = mempty
+        | TR.AnyOf <- tr = mempty
+    gatherLocalImports tr
+        | (TR.ProdType map') <- tr = gatherProd map'
+        | (TR.SumType map') <- tr = gatherSum map'
       where
-        gather :: Map U.FieldName TR.TypeRef -> [ImportDecl']
-        gather = mapMaybe snd . Map.toList . Map.map go
+        gatherSum :: Map U.FieldName TR.SumConstr -> [ImportDecl']
+        gatherSum = (catMaybes . snd) <=< Map.toList . fmap TR.unSumConstr . Map.map (fmap go)
           where
-            go :: TR.TypeRef -> Maybe ImportDecl'
-            go tr' = qualified' . import' . fromString <$> U.referenceToModuleName prefix tr'
+            go :: TR.Field -> Maybe ImportDecl'
+            go (TR.Field _ tr') =
+                qualified' . import' . fromString <$> U.referenceToModuleName prefix tr'
+        gatherProd :: Map U.FieldName TR.Field -> [ImportDecl']
+        gatherProd = mapMaybe snd . Map.toList . Map.map go
+          where
+            go :: TR.Field -> Maybe ImportDecl'
+            go (TR.Field _ tr') =
+                qualified' . import' . fromString <$> U.referenceToModuleName prefix tr'
     gatherLocalImports (TR.ArrayType tr') =
         toList $ qualified' . import' . fromString <$> U.referenceToModuleName prefix tr'
     gatherLocalImports (TR.NewType tr') =
         toList $ qualified' . import' . fromString <$> U.referenceToModuleName prefix tr'
     gatherLocalImports (TR.Ref nlr) =
         toList $ qualified' . import' . fromString <$> U.nonLocalReferenceToModuleName nlr
+    transformField :: TR.Field -> Field
+    transformField (TR.Field req tr) =
+        let tt = var . fromString $ U.referenceToQualTypeName prefix tr
+         in strict . field $ maybeWrapper req tt
+      where
+        maybeWrapper :: Bool -> HsType' -> HsType'
+        maybeWrapper True  = (var "Maybe" @@)
+        maybeWrapper False = id
     buildTypeDecl :: TR.TypeRep -> HsDecl'
+    buildTypeDecl TR.OneOf = data' (fromString typename) [] [prefixCon "OneOf" []] []
+    buildTypeDecl TR.AnyOf = data' (fromString typename) [] [prefixCon "AnyOf" []] []
+    buildTypeDecl TR.AllOf = data' (fromString typename) [] [prefixCon "AllOf" []] []
     buildTypeDecl (TR.ProdType map') = data' (fromString typename) [] [buildProdCon map'] []
       where
-        buildProdCon :: Map TR.FieldName TR.TypeRef -> ConDecl'
+        buildProdCon :: Map TR.FieldName TR.Field -> ConDecl'
         buildProdCon km =
             recordCon (fromString typename) $
-            bimap
-                (fromString . U.changeReservedNames)
-                (strict . field . var . fromString . U.referenceToQualTypeName prefix) <$>
-            Map.toList km
+            bimap (fromString . U.changeReservedNames) transformField <$> Map.toList km
     buildTypeDecl (TR.SumType map') = data' (fromString typename) [] (buildSumCon's map') []
       where
-        buildSumCon's :: Map TR.FieldName TR.TypeRef -> [ConDecl']
+        buildSumCon's :: Map TR.FieldName TR.SumConstr -> [ConDecl']
         buildSumCon's km =
-            let constructorFromPair k v =
-                    prefixCon (fromString . U.changeReservedNames $ k) $
-                    singleton . (strict . field . var . fromString . U.referenceToTypeName) $ v
+            let constructorFromPair :: String -> TR.SumConstr -> ConDecl'
+                constructorFromPair k v =
+                    prefixCon (fromString . U.fieldNameToSumCon . U.changeReservedNames $ k) $
+                    TR.unSumConstr $ transformField <$> v
              in uncurry constructorFromPair <$> Map.toList km
     buildTypeDecl (TR.ArrayType tr') = type' (fromString typename) [] $ listType @@ listItem
       where
         listType = var "Data.Vector.Vector"
         listItem = var . fromString $ U.referenceToQualTypeName prefix tr'
     buildTypeDecl (TR.NewType tr') =
-        let newtypename = fromString typename
-            constructorName = fromString typename
-            internalType = field . var . fromString $ U.referenceToQualTypeName prefix tr'
-            getter = fromString $ U.getterName typename
-         in newtype' newtypename [] (recordCon constructorName [(getter, internalType)]) []
+        newtype' newtypename [] (recordCon constructorName [(getter, internalType)]) []
+      where
+        newtypename = fromString typename
+        constructorName = fromString typename
+        internalType = field . var . fromString $ U.referenceToQualTypeName prefix tr'
+        getter = fromString $ U.getterName typename
     buildTypeDecl (TR.Ref nlr) = type' (fromString typename) [] symtype
       where
         symtype = var . fromString $ U.nonLocalReferenceToQualTypeName nlr

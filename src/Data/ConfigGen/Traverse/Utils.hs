@@ -6,6 +6,7 @@ import           Data.Maybe             (fromMaybe)
 import           System.FilePath        (dropExtension, takeBaseName, (<.>), (</>))
 import           Util                   (capitalise, split)
 import Data.List (intersperse)
+import Text.Casing (pascal)
 
 type ModulePrefix =  [String]
 
@@ -76,10 +77,14 @@ typeNameFromAbsolutePath fp Nothing     = takeBaseName (fp & dropExtension)
 typeNameFromAbsolutePath _ (Just title) = capitalise title
 
 changeReservedNames :: String -> String
-changeReservedNames "type"   = "_type'"
-changeReservedNames "data"   = "_data'"
+changeReservedNames "type"   = "type'"
+changeReservedNames "data"   = "data'"
 changeReservedNames "module" = "_module'"
 changeReservedNames x        = x
+
+
+fieldNameToSumCon :: FieldName -> String
+fieldNameToSumCon = pascal
 
 chooseName :: FieldName -> Maybe Title -> TR.TypeName
 chooseName fn m_title = capitalise $ fromMaybe fn m_title
@@ -87,5 +92,8 @@ chooseName fn m_title = capitalise $ fromMaybe fn m_title
 getterName :: TR.TypeName -> FieldName
 getterName = ("un" ++)
 
-globalPrefix :: FilePath 
+globalPrefix :: FilePath
 globalPrefix = "Cheops" </> "Transport"
+
+defaultImportNames :: [String]
+defaultImportNames = ["GHC.Types", "GHC.Int", "Data.Text", "Data.Vector", "Data.Scientific"]
