@@ -19,7 +19,7 @@ import GHC.SourceGen (HsModule', showPpr)
 
 import qualified CLI
 import           Data.ConfigGen.Parsing  (ParserResult (..), postprocessParserResult,
-                                          replaceDashesWithUnderscores)
+                                          dashesToUnderscore, transformStrings)
 import           Data.ConfigGen.Traverse (build)
 
 import           Control.Monad                           (unless, when)
@@ -27,6 +27,7 @@ import           Data.ConfigGen.Parsing.IncludeInjection (eventsFromFile)
 import           Data.ConfigGen.TypeRep                  (ModuleParts (ModuleParts))
 import qualified Data.ConfigGen.TypeRep                  as TR
 import           Data.Either                             (fromRight, isLeft, isRight, lefts)
+import Text.Casing (camel)
 
 newtype GeneratedModules =
     GeneratedModules
@@ -66,7 +67,7 @@ main = do
                              (TR.Ref . TR.RefPrimitiveType $ "Int"))
                         mempty
             let acc =
-                    replaceDashesWithUnderscores . postprocessParserResult $
+                    transformStrings (camel . dashesToUnderscore) . postprocessParserResult $
                     foldl' combineParserResults ini res
             when chDebug $ putStrLn "-- accumulated parser results"
             when chDebug $ print acc

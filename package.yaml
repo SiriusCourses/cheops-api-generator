@@ -57,6 +57,7 @@ dependencies:
 - unix
 - filemanip
 - MissingH
+- casing
 
 ghc-options:
 - -Wincomplete-patterns

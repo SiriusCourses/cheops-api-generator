@@ -5,7 +5,7 @@ module Data.ConfigGen.Traverse
     ) where
 
 import Control.Monad.Except       (Except, MonadError (..), runExcept)
-import Control.Monad.Reader       (MonadReader (..), ReaderT (..), asks, withReaderT)
+import Control.Monad.Reader       (ReaderT (..), asks, withReaderT)
 import Control.Monad.State.Strict (MonadState (..), StateT (..), modify)
 
 import           Data.Bifunctor (bimap)
@@ -26,9 +26,9 @@ import GHC.SourceGen (ConDecl', HsDecl', HsModule', ImportDecl', Var (var), data
                       import', module', newtype', prefixCon, qualified', recordCon, strict,
                       type', (@@))
 
-import           Data.Foldable      (toList)
-import           Data.Map           (Map)
-import qualified Data.Map           as Map
+import           Data.Foldable   (toList)
+import           Data.Map        (Map)
+import qualified Data.Map        as Map
 
 data Dep a
     = Built
@@ -109,9 +109,7 @@ buildModule Payload {..} prefix =
         gather = mapMaybe snd . Map.toList . Map.map go
           where
             go :: TR.TypeRef -> Maybe ImportDecl'
-            go tr' =
-                qualified' . import' . fromString <$>
-                U.referenceToModuleName prefix tr'
+            go tr' = qualified' . import' . fromString <$> U.referenceToModuleName prefix tr'
     gatherLocalImports (TR.ArrayType tr') =
         toList $ qualified' . import' . fromString <$> U.referenceToModuleName prefix tr'
     gatherLocalImports (TR.NewType tr') =
@@ -166,8 +164,8 @@ buildExternalDep path = do
                     coerce . Map.delete (fromString path) $
                     (coerce state' :: Map FilePath (Dep ModuleParts))
             put newState
-            builtModules <- local (const modulePrefix) $ modulePartsToModules yetTobuild
-            modify $ \incs -> GeneratorState $ Map.insert (fromString path) Built $ coerce incs    
+            builtModules <- withReaderT (const modulePrefix) $ modulePartsToModules yetTobuild
+            modify $ \incs -> GeneratorState $ Map.insert (fromString path) Built $ coerce incs
             return builtModules
 
 buildOrphanDeps :: Ctx (Map FilePath HsModule')
@@ -179,10 +177,10 @@ buildOrphanDeps = do
     f (_, Built)     = False
 
 modulePartsToModules :: ModuleParts -> Ctx (Map FilePath HsModule')
-modulePartsToModules mp = Hylo.hylo breakDown buildUp mp
+modulePartsToModules = Hylo.hylo breakDown buildUp
 
 build :: ParserResult -> Either String (Map FilePath HsModule')
-build  (ParserResult _ deps) = do
+build (ParserResult _ deps) = do
     (km, _) <-
         runExcept $
         runStateT (runReaderT buildOrphanDeps mempty) $

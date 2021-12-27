@@ -28,7 +28,7 @@ import           Data.List.Utils               (split)
 import           Data.Map                      (Map)
 import qualified Data.Map                      as Map
 import           GHC.Generics                  (Generic)
-import           System.FilePath               (pathSeparator, takeBaseName)
+import           System.FilePath               (pathSeparator, takeBaseName, (</>))
 
 newtype ParserState =
     ParserState
@@ -69,8 +69,7 @@ instance FromJSON ParserResult where
              in ParserResult {..}
     parseJSON invalid = prependFailure failMsg $ typeMismatch "Parsed Types" invalid
       where
-        failMsg =
-            "parsing of JSON-scheme failed, expected object encountered something else."
+        failMsg = "parsing of JSON-scheme failed, expected object encountered something else."
 
 parseDispatch :: Object -> StatefulParser ModuleParts
 parseDispatch obj = do
@@ -180,20 +179,23 @@ parseRecordLike obj typeTag title = do
                  "There are some fields in " ++
                  fromMaybe "Unnamed" title ++
                  " that are required but not present: " ++
-                 (mconcat . intersperse ", " $ reqs \\ Map.keys properties) 
+                 (mconcat . intersperse ", " $ reqs \\ Map.keys properties)
 
 postprocessParserResult :: ParserResult -> ParserResult
 postprocessParserResult (ParserResult mp incs) =
-    ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . stripPathPrefix) go <$> incs
+    ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . changePath) go <$> incs
   where
-    stripPathPrefix y =
+    changePath y =
         case incs of
-            [] -> Just $ takeBaseName y
-            [_] -> Just $ takeBaseName y
+            [] -> Just $ addPrefix . takeBaseName $ y
+            [_] -> Just $ addPrefix . takeBaseName $ y
             _ ->
                 let lcp = LCP.commonPrefix $ split [pathSeparator] . fst <$> incs
-                 in mconcat . intersperse [pathSeparator] <$>
+                 in addPrefix . mconcat . intersperse [pathSeparator] <$>
                     stripPrefix lcp (split [pathSeparator] y)
+      where
+        addPrefix :: FilePath -> FilePath
+        addPrefix p =  U.globalPrefix </> p
     go :: ModuleParts -> ModuleParts
     go mp'
         | TR.ProdType km <- tr = mpu' & declaration .~ TR.ProdType (mapTypeRef <$> km)
@@ -203,18 +205,24 @@ postprocessParserResult (ParserResult mp incs) =
         | TR.Ref nltr <- tr = mpu' & declaration .~ TR.Ref (mapNonLocalRef nltr)
       where
         tr = _declaration mp'
-        mpu = mp' & externalDeps %~ Set.map (fromJust . stripPathPrefix)
+        mpu = mp' & externalDeps %~ Set.map (fromJust . changePath)
         mpu' = mpu & localDeps %~ fmap go
     mapNonLocalRef :: TR.NonLocalRef -> TR.NonLocalRef
     mapNonLocalRef tr
-        | TR.RefExternalType s tn <- tr = TR.RefExternalType (fromJust $ stripPathPrefix s) tn
+        | TR.RefExternalType s tn <- tr = TR.RefExternalType (fromJust $ changePath s) tn
         | otherwise = tr
     mapTypeRef :: TR.TypeRef -> TR.TypeRef
     mapTypeRef (TR.ExtRef nlr) = TR.ExtRef $ mapNonLocalRef nlr
     mapTypeRef r               = r
 
-replaceDashesWithUnderscores :: ParserResult -> ParserResult
-replaceDashesWithUnderscores (ParserResult mp deps) =
+dashesToUnderscore :: String -> String
+dashesToUnderscore = map l
+  where
+    l '-' = '_'
+    l s   = s
+
+transformStrings :: (String -> String) -> ParserResult -> ParserResult
+transformStrings transform (ParserResult mp deps) =
     ParserResult (go mp) $ Data.Bifunctor.bimap transform go <$> deps
   where
     go :: ModuleParts -> ModuleParts
@@ -241,8 +249,3 @@ replaceDashesWithUnderscores (ParserResult mp deps) =
     transfromTypeRef (TR.ReferenceToExternalType s tn) =
         TR.ReferenceToExternalType (transform s) (transform tn)
     transfromTypeRef r = r
-    transform :: String -> String
-    transform nm = map l nm
-      where
-        l '-' = '_'
-        l s   = s

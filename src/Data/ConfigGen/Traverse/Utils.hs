@@ -86,3 +86,6 @@ chooseName fn m_title = capitalise $ fromMaybe fn m_title
 
 getterName :: TR.TypeName -> FieldName
 getterName = ("un" ++)
+
+globalPrefix :: FilePath 
+globalPrefix = "Cheops" </> "Transport"
