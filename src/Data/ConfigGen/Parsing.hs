@@ -242,7 +242,7 @@ transformStrings transform (ParserResult mp deps) =
     transformTypeRep (TR.Ref (TR.RefExternalType nm tn)) =
         TR.Ref $ TR.RefExternalType (transform nm) (transform tn)
     transformTypeRep (TR.Ref (TR.RefPrimitiveType nm)) =
-        TR.Ref . TR.RefPrimitiveType $ transform nm
+        TR.Ref . TR.RefPrimitiveType $ nm
     transfromTypeRef :: TR.TypeRef -> TR.TypeRef
     transfromTypeRef (TR.ReferenceToLocalType s tn) =
         TR.ReferenceToLocalType (transform s) (transform tn)
