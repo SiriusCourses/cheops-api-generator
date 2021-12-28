@@ -7,6 +7,7 @@ import           System.FilePath        (dropExtension, takeBaseName, (<.>), (</
 import           Util                   (capitalise, split)
 import Data.List (intersperse)
 import Text.Casing (pascal)
+import GHC.SourceGen
 
 type ModulePrefix =  [String]
 
@@ -97,4 +98,10 @@ globalPrefix :: FilePath
 globalPrefix = "Cheops" </> "Transport"
 
 defaultImportNames :: [String]
-defaultImportNames = ["GHC.Types", "GHC.Int", "Data.Text", "Data.Vector", "Data.Scientific"]
+defaultImportNames = ["Data.Yaml", "GHC.Generics", "GHC.Types", "GHC.Int", "Data.Text", "Data.Vector", "Data.Scientific"]
+
+defaultDerivingCause :: [HsDerivingClause']
+defaultDerivingCause = [generic, json]
+    where
+        generic = deriving' [var "GHC.Generics.Generic"]
+        json = derivingAnyclass [var "Data.Yaml.ToJSON", var "Data.Yaml.FromJSON"]

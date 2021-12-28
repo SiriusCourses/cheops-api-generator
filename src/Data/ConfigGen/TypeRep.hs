@@ -16,11 +16,11 @@ module Data.ConfigGen.TypeRep
     , SumConstrF(..)
     ) where
 
-import           GHC.Generics (Generic)
+import GHC.Generics (Generic)
 
 import Data.Yaml (ToJSON)
 
-import           Data.Map (Map)
+import Data.Map (Map)
 
 type ModuleName = String
 

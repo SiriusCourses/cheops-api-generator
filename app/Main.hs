@@ -23,6 +23,7 @@ import           Data.ConfigGen.Parsing  (ParserResult (..), dashesToUnderscore,
                                           postprocessParserResult, transformStrings)
 import           Data.ConfigGen.Traverse (build)
 
+import           Conduit                                 (liftIO)
 import           Data.ConfigGen.ModuleParts              (ModuleParts (..))
 import           Data.ConfigGen.Parsing.IncludeInjection (RepositoryRoot (..), eventsFromFile)
 import qualified Data.ConfigGen.TypeRep                  as TR
@@ -46,8 +47,18 @@ main = do
             CLI.Dir s  -> collectFiles s
     crr <- canonicalizePath chRoot
     content <-
-        sequence <$>
-        traverse (decodeHelper @ParserResult . eventsFromFile (RepositoryRoot crr)) files
+        do 
+            putStrLn "Parsing files:"
+            pb <- PB.newProgressBar PB.defStyle 10 (PB.Progress 0 (length files) ())
+            sequence <$>
+                traverse
+                    (\f -> do
+                            res <-
+                                decodeHelper @ParserResult . eventsFromFile (RepositoryRoot crr) $
+                                f
+                            liftIO $ PB.incProgress pb 1
+                            return res)
+                    files
     case content of
         Left pe -> print pe
         Right x0 -> do
@@ -73,7 +84,9 @@ main = do
             when chDebug $ traverse_ (print . fst) $ deps acc
             when chDebug $ putStrLn "-- accumulated parser results"
             when chDebug $ print acc
-            let b = build acc
+            putStrLn "Building modules..."
+            b <- pure $ build acc
+            putStrLn "Modules are built!"
             when chDebug $ putStrLn "-- Built Modules:"
             when chDebug $ print . Map.keys $ fromRight mempty b
             case b of

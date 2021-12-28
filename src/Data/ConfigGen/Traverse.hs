@@ -8,28 +8,27 @@ import Control.Monad.Except       (Except, MonadError (..), runExcept)
 import Control.Monad.Reader       (ReaderT (..), asks, withReaderT)
 import Control.Monad.State.Strict (MonadState (..), StateT (..), modify)
 
+import           Control.Monad  ((<=<))
 import           Data.Bifunctor (bimap)
 import           Data.Coerce    (coerce)
+import           Data.Foldable  (toList)
+import           Data.Map       (Map)
+import qualified Data.Map       as Map
 import           Data.Maybe     (catMaybes, mapMaybe)
 import           Data.Set       (Set)
 import qualified Data.Set       as Set
 import           Data.String    (fromString)
 
+import qualified Data.ConfigGen.ModuleParts    as MP
 import           Data.ConfigGen.Parsing        (ParserResult (ParserResult))
 import qualified Data.ConfigGen.Traverse.Hylo  as Hylo
 import qualified Data.ConfigGen.Traverse.Utils as U
 import           Data.ConfigGen.TypeRep        (ModuleName, TypeRep)
-import qualified Data.ConfigGen.ModuleParts as MP
 import qualified Data.ConfigGen.TypeRep        as TR
 
 import GHC.SourceGen (ConDecl', Field, HsDecl', HsModule', HsType', ImportDecl', Var (var),
                       data', field, import', module', newtype', prefixCon, qualified',
                       recordCon, strict, type', (@@))
-
-import           Control.Monad ((<=<))
-import           Data.Foldable (toList)
-import           Data.Map      (Map)
-import qualified Data.Map      as Map
 
 data Dep a
     = Built
@@ -134,15 +133,19 @@ buildModule Payload {..} prefix =
         maybeWrapper True  = (var "Maybe" @@)
         maybeWrapper False = id
     buildTypeDecl :: TR.TypeRep -> HsDecl'
-    buildTypeDecl TR.AnyOf = data' (fromString typename) [] [prefixCon "AnyOf" []] []
-    buildTypeDecl TR.AllOf = data' (fromString typename) [] [prefixCon "AllOf" []] []
-    buildTypeDecl (TR.ProdType map') = data' (fromString typename) [] [buildProdCon map'] []
+    buildTypeDecl TR.AnyOf =
+        data' (fromString typename) [] [prefixCon "AnyOf" []] U.defaultDerivingCause
+    buildTypeDecl TR.AllOf =
+        data' (fromString typename) [] [prefixCon "AllOf" []] U.defaultDerivingCause
+    buildTypeDecl (TR.ProdType map') =
+        data' (fromString typename) [] [buildProdCon map'] U.defaultDerivingCause
       where
         buildProdCon :: Map TR.FieldName TR.Field -> ConDecl'
         buildProdCon km =
             recordCon (fromString typename) $
             bimap (fromString . U.changeReservedNames) transformField <$> Map.toList km
-    buildTypeDecl (TR.SumType map') = data' (fromString typename) [] (buildSumCon's map') []
+    buildTypeDecl (TR.SumType map') =
+        data' (fromString typename) [] (buildSumCon's map') U.defaultDerivingCause
       where
         buildSumCon's :: Map TR.FieldName TR.SumConstr -> [ConDecl']
         buildSumCon's km =
@@ -156,7 +159,11 @@ buildModule Payload {..} prefix =
         listType = var "Data.Vector.Vector"
         listItem = var . fromString $ U.referenceToQualTypeName prefix tr'
     buildTypeDecl (TR.NewType tr') =
-        newtype' newtypename [] (recordCon constructorName [(getter, internalType)]) []
+        newtype'
+            newtypename
+            []
+            (recordCon constructorName [(getter, internalType)])
+            U.defaultDerivingCause
       where
         newtypename = fromString typename
         constructorName = fromString typename
