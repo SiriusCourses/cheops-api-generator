@@ -28,7 +28,9 @@ default-extensions:
 - StandaloneDeriving
 - OverloadedStrings
 - DerivingStrategies         
-- DerivingVia                
+- DerivingVia     
+- DeriveGeneric
+- DeriveAnyClass           
 - GeneralizedNewtypeDeriving 
 - TupleSections
 - LambdaCase
@@ -64,6 +66,7 @@ dependencies:
 ghc-options:
 - -Wincomplete-patterns
 - -Wall
+- -Wno-unused-imports
 - -Wcompat
 - -Wincomplete-record-updates
 - -Wredundant-constraints
