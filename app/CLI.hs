@@ -18,7 +18,7 @@ import System.Posix     (getFileStatus, isDirectory, isRegularFile)
 data Input =
     Input
         { print_internal_repr :: Bool <?> "If enabled will print to stdout an internal representation of generated code"
-        , debug :: Bool <?> "If enabled will print generated code into stdout, ignoring output directory"
+        , debug :: Bool <?> "If enabled will print intermediate data into stdout"
         , input :: FilePath <?> "A directory or a file where to start generation from"
         , output :: FilePath <!> "." <?> "A directory where to store generated files"
         , repository_root :: FilePath <!> "/" <?> "Specifies root for absolute paths, defaults to system root"

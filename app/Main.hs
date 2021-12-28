@@ -82,13 +82,13 @@ main = do
                     foldl' combineParserResults ini res
             when chDebug $ putStrLn "-- accumulated files"
             when chDebug $ traverse_ (print . fst) $ deps acc
-            when chDebug $ putStrLn "-- accumulated parser results"
-            when chDebug $ print acc
+            when chPrint_internal_repr $ putStrLn "-- accumulated parser results"
+            when chPrint_internal_repr $ print acc
             putStrLn "Building modules..."
             b <- pure $ build acc
             putStrLn "Modules are built!"
-            when chDebug $ putStrLn "-- Built Modules:"
-            when chDebug $ print . Map.keys $ fromRight mempty b
+            when chPrint_internal_repr $ putStrLn "-- Built Modules:"
+            when chPrint_internal_repr $ print . Map.keys $ fromRight mempty b
             case b of
                 Left s -> fail s
                 Right km -> do
