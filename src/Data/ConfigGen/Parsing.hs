@@ -10,7 +10,8 @@ import Control.Lens               (makeLenses, (%~), (&), (.~), (<&>), (^.))
 import Control.Monad.State.Strict (MonadTrans (lift), StateT (runStateT), get, modify)
 
 import Data.Aeson.Types (prependFailure, typeMismatch)
-import Data.Yaml        (FromJSON (..), Object, Parser, ToJSON, Value (..), (.!=), (.:), (.:?), Array)
+import Data.Yaml        (Array, FromJSON (..), Object, Parser, ToJSON, Value (..), (.!=), (.:),
+                         (.:?))
 
 import qualified Data.Bifunctor
 import           Data.Maybe     (fromJust, fromMaybe)
@@ -19,10 +20,11 @@ import           Data.String    (IsString (fromString))
 
 import           Control.Applicative           ((<|>))
 import qualified Data.ConfigGen.JSTypes        as JS
+import           Data.ConfigGen.ModuleParts    (ModuleParts (..))
+import qualified Data.ConfigGen.ModuleParts    as MP
 import qualified Data.ConfigGen.Parsing.LCP    as LCP
 import           Data.ConfigGen.Traverse.Utils (Title)
 import qualified Data.ConfigGen.Traverse.Utils as U
-import           Data.ConfigGen.TypeRep        (ModuleParts (..))
 import qualified Data.ConfigGen.TypeRep        as TR
 import           Data.List                     (intersperse, stripPrefix, (\\))
 import           Data.List.Utils               (split)
@@ -30,7 +32,6 @@ import           Data.Map                      (Map)
 import qualified Data.Map                      as Map
 import           GHC.Generics                  (Generic)
 import           System.FilePath               (pathSeparator, takeBaseName, (</>))
-import Debug.Trace (trace)
 
 newtype ParserState =
     ParserState
@@ -114,9 +115,12 @@ parseDispatch obj = do
 
 parseOneOf :: Object -> StatefulParser ModuleParts
 parseOneOf obj = do
-    (_ :: Array) <- lift (obj .: "oneOf")
-    title <- trace "Found one of" $ lift $ obj .:? "title"
-    return $ ModuleParts title mempty mempty TR.OneOf
+    (options :: Map String (ModuleParts, Bool)) <-
+        Map.map (, True) . Map.fromList . zip (fmap (\n -> "Unnamed" ++ show n) [1 :: Int ..]) <$>
+        (traverse parseDispatch =<< lift (obj .: "oneOf"))
+    title <- lift $ obj .:? "title"
+    let ini = ModuleParts title mempty mempty $ TR.SumType mempty
+    return $ Map.foldrWithKey MP.appendRecord ini options
 
 parseAnyOf :: Object -> StatefulParser ModuleParts
 parseAnyOf obj = do
@@ -184,28 +188,10 @@ parseRecordLike obj typeTag title = do
                 JS.RecObjectTag -> TR.ProdType mempty
     return $
         Map.foldrWithKey
-            appendRecord
+            MP.appendRecord
             (ModuleParts title mempty mempty initialTypeRep)
             parsedProperties
   where
-    appendRecord :: TR.FieldName -> (ModuleParts, Bool) -> ModuleParts -> ModuleParts
-    appendRecord fieldName (record, req) ModuleParts {..} =
-        case record ^. declaration of
-            TR.Ref (TR.RefPrimitiveType s) ->
-                ModuleParts _jsTitle _externalDeps _localDeps $
-                TR.appendToTypeRep _declaration fieldName $
-                TR.Field req (TR.ReferenceToPrimitiveType s)
-            TR.Ref (TR.RefExternalType extName tn) ->
-                ModuleParts _jsTitle (Set.insert extName _externalDeps) _localDeps $
-                TR.appendToTypeRep _declaration fieldName $
-                TR.Field req (TR.ReferenceToExternalType extName tn)
-            _local ->
-                let typename = U.chooseName fieldName (record ^. jsTitle)
-                 in ModuleParts _jsTitle _externalDeps (Map.insert fieldName record _localDeps) $
-                    TR.appendToTypeRep
-                        _declaration
-                        fieldName
-                        (TR.Field req $ TR.ReferenceToLocalType fieldName typename)
     checkRequired ::
            [TR.FieldName]
         -> Map TR.FieldName Object

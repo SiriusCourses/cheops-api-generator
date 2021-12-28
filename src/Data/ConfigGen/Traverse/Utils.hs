@@ -80,6 +80,7 @@ changeReservedNames :: String -> String
 changeReservedNames "type"   = "type'"
 changeReservedNames "data"   = "data'"
 changeReservedNames "module" = "_module'"
+changeReservedNames "default" = "_default'"
 changeReservedNames x        = x
 
 

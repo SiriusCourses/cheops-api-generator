@@ -1,36 +1,26 @@
 {-# LANGUAGE DeriveAnyClass  #-}
 {-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 module Data.ConfigGen.TypeRep
     ( TypeRef(.., ReferenceToExternalType, ReferenceToPrimitiveType,
         ReferenceToLocalType)
     , TypeRep(..)
-    , ModuleParts(..)
-    , declaration
-    , externalDeps
-    , localDeps
-    , jsTitle
     , NonLocalRef(..)
     , LocalReference(..)
     , ModuleName
     , FieldName
     , TypeName
-    , appendToTypeRep
     , Field(..)
     , SumConstr
     , SumConstrF(..)
     ) where
 
-import Control.Lens (makeLenses)
-import Data.Set     (Set)
-import GHC.Generics (Generic)
+import           GHC.Generics (Generic)
 
 import Data.Yaml (ToJSON)
 
 import           Data.Map (Map)
-import qualified Data.Map as Map
 
 type ModuleName = String
 
@@ -74,9 +64,8 @@ newtype SumConstrF a =
 data TypeRep
     = ProdType (Map FieldName Field)
     | SumType (Map FieldName SumConstr)
-    | AnyOf 
-    | OneOf 
-    | AllOf 
+    | AnyOf
+    | AllOf
     | ArrayType TypeRef
     | NewType TypeRef
     | Ref NonLocalRef
@@ -99,24 +88,3 @@ pattern ReferenceToPrimitiveType s = ExtRef (RefPrimitiveType s)
 
 {-# COMPLETE ReferenceToLocalType, ReferenceToExternalType,
   ReferenceToPrimitiveType #-}
-
-appendToTypeRep :: TypeRep -> FieldName -> Field -> TypeRep
-appendToTypeRep typeRep k tr =
-    case typeRep of
-        ProdType km       -> ProdType $ Map.insert k tr km
-        SumType km        -> SumType $ Map.insert k (SumConstr [tr]) km
-        nt@(NewType _)    -> nt
-        arr@(ArrayType _) -> arr
-        _x                -> _x
-
-data ModuleParts =
-    ModuleParts
-        { _jsTitle      :: Maybe String
-        , _externalDeps :: Set FilePath
-        , _localDeps    :: Map ModuleName ModuleParts
-        , _declaration  :: TypeRep
-        }
-    deriving (Show, Eq, Generic)
-    deriving anyclass (ToJSON)
-
-makeLenses ''ModuleParts

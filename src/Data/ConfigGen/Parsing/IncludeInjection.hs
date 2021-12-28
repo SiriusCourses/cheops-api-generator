@@ -17,16 +17,19 @@ import           Conduit           (MonadIO (liftIO), MonadResource, await)
 import           Data.Conduit      (ConduitM, awaitForever, yield, (.|))
 import qualified Data.Conduit.List as CL
 
-import System.Directory (canonicalizePath)
+import System.Directory (canonicalizePath, doesFileExist)
 import System.FilePath  (takeDirectory, (</>))
 import System.IO.Error  (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
 
-eventsFromFile :: MonadResource m => FilePath -> ConduitM i Event m ()
-eventsFromFile = go [] []
+newtype RepositoryRoot =
+    RepositoryRoot FilePath
+
+eventsFromFile :: MonadResource m => RepositoryRoot -> FilePath -> ConduitM i Event m ()
+eventsFromFile (RepositoryRoot crr) = go [] []
   where
     go :: MonadResource m => [Event] -> [FilePath] -> FilePath -> ConduitM i Event m ()
     go injectedEvents seen fp = do
-        cfp <- liftIO $ handleNotFound $ canonicalizePath fp
+        cfp <- liftIO $ handleNotFound $ rerootPath fp
         when (cfp `elem` seen) $ liftIO $ throwIO CyclicIncludes
         Y.decodeFile cfp .| conduitInjector injectedEvents .| do
             awaitForever $ \event ->
@@ -47,6 +50,12 @@ eventsFromFile = go [] []
                             CL.filter (`notElem` irrelevantEvents)
                     _ -> yield event
     irrelevantEvents = [EventStreamStart, EventDocumentStart, EventDocumentEnd, EventStreamEnd]
+    rerootPath :: FilePath -> IO FilePath
+    rerootPath fp' = do
+        exists <- doesFileExist fp'
+        if exists
+            then canonicalizePath fp'
+            else canonicalizePath $ crr ++ fp' -- i have no clue why </> does not work
     handleNotFound :: IO a -> IO a
     handleNotFound =
         handleJust

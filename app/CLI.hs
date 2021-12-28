@@ -10,9 +10,9 @@ module CLI
     , CheckedPath(..)
     ) where
 
-import Control.Monad    (when)
+import Control.Monad    (unless, when)
 import Options.Generic
-import System.Directory (canonicalizePath)
+import System.Directory (canonicalizePath, doesDirectoryExist)
 import System.Posix     (getFileStatus, isDirectory, isRegularFile)
 
 data Input =
@@ -21,6 +21,7 @@ data Input =
         , debug :: Bool <?> "If enabled will print generated code into stdout, ignoring output directory"
         , input :: FilePath <?> "A directory or a file where to start generation from"
         , output :: FilePath <!> "." <?> "A directory where to store generated files"
+        , repository_root :: FilePath <!> "/" <?> "Specifies root for absolute paths, defaults to system root"
         }
     deriving (Generic, Show)
 
@@ -36,6 +37,7 @@ data CheckedInput =
         , chDebug               :: Bool
         , chInput               :: CheckedPath
         , chOutput              :: FilePath
+        , chRoot                :: FilePath
         }
 
 getCLIArgs :: IO CheckedInput
@@ -43,14 +45,24 @@ getCLIArgs = do
     Input {..} <- getRecord "cmd args"
     inputStatus <- getFileStatus $ unHelpful input
     outputStatus <- getFileStatus $ unDefValue . unHelpful $ output
+    rootExists <- doesDirectoryExist $ unDefValue . unHelpful $ repository_root
+    unless rootExists . fail $
+        "repository root must exist. This: \"" ++
+        show (unDefValue . unHelpful $ repository_root) ++ "\" does not."
     when ((not . isDirectory $ inputStatus) && (not . isRegularFile $ inputStatus)) $
         fail "Input file should be file or directory"
     chInput <-
-        case isDirectory inputStatus of
-            True  -> fmap Dir . canonicalizePath . unHelpful $ input
-            False -> fmap File . canonicalizePath . unHelpful $ input
+        if isDirectory inputStatus
+            then fmap Dir . canonicalizePath . unHelpful $ input
+            else fmap File . canonicalizePath . unHelpful $ input
     chOutput <-
-        case isDirectory outputStatus of
-            False -> fail "output should be a directory"
-            True  -> canonicalizePath . unDefValue . unHelpful $ output
-    return $ CheckedInput (unHelpful print_internal_repr) (unHelpful debug) chInput chOutput
+        if isDirectory outputStatus
+            then canonicalizePath . unDefValue . unHelpful $ output
+            else fail "output should be a directory"
+    return $
+        CheckedInput
+            (unHelpful print_internal_repr)
+            (unHelpful debug)
+            chInput
+            chOutput
+            (unDefValue . unHelpful $ repository_root)

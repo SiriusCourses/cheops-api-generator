@@ -18,7 +18,8 @@ import           Data.String    (fromString)
 import           Data.ConfigGen.Parsing        (ParserResult (ParserResult))
 import qualified Data.ConfigGen.Traverse.Hylo  as Hylo
 import qualified Data.ConfigGen.Traverse.Utils as U
-import           Data.ConfigGen.TypeRep        (ModuleName, ModuleParts (..), TypeRep)
+import           Data.ConfigGen.TypeRep        (ModuleName, TypeRep)
+import qualified Data.ConfigGen.ModuleParts as MP
 import qualified Data.ConfigGen.TypeRep        as TR
 
 import GHC.SourceGen (ConDecl', Field, HsDecl', HsModule', HsType', ImportDecl', Var (var),
@@ -37,7 +38,7 @@ data Dep a
 
 newtype GeneratorState =
     GeneratorState
-        { includes :: Map FilePath (Dep ModuleParts)
+        { includes :: Map FilePath (Dep MP.ModuleParts)
         }
     deriving newtype (Semigroup, Monoid, Show)
 
@@ -62,8 +63,8 @@ instance Functor (NodeF a) where
     fmap _ (Leaf x)       = Leaf x
     fmap fab (Local x km) = Local x $ fmap fab km
 
-breakDown :: Hylo.Coalgebra (NodeF Payload) ModuleParts
-breakDown (ModuleParts _jsTitle _externalDeps _localDeps _declaration)
+breakDown :: Hylo.Coalgebra (NodeF Payload) MP.ModuleParts
+breakDown (MP.ModuleParts _jsTitle _externalDeps _localDeps _declaration)
     | null _localDeps = Leaf payload
     | otherwise = Local payload _localDeps
   where
@@ -100,7 +101,6 @@ buildModule Payload {..} prefix =
     typename = U.prefixToTypeName prefix title
     gatherLocalImports :: TR.TypeRep -> [ImportDecl']
     gatherLocalImports tr
-        | TR.OneOf <- tr = mempty
         | TR.AllOf <- tr = mempty
         | TR.AnyOf <- tr = mempty
     gatherLocalImports tr
@@ -134,7 +134,6 @@ buildModule Payload {..} prefix =
         maybeWrapper True  = (var "Maybe" @@)
         maybeWrapper False = id
     buildTypeDecl :: TR.TypeRep -> HsDecl'
-    buildTypeDecl TR.OneOf = data' (fromString typename) [] [prefixCon "OneOf" []] []
     buildTypeDecl TR.AnyOf = data' (fromString typename) [] [prefixCon "AnyOf" []] []
     buildTypeDecl TR.AllOf = data' (fromString typename) [] [prefixCon "AllOf" []] []
     buildTypeDecl (TR.ProdType map') = data' (fromString typename) [] [buildProdCon map'] []
@@ -181,7 +180,7 @@ buildExternalDep path = do
             let modulePrefix = U.pathToPrefix path
             let (newState :: GeneratorState) =
                     coerce . Map.delete (fromString path) $
-                    (coerce state' :: Map FilePath (Dep ModuleParts))
+                    (coerce state' :: Map FilePath (Dep MP.ModuleParts))
             put newState
             builtModules <- withReaderT (const modulePrefix) $ modulePartsToModules yetTobuild
             modify $ \incs -> GeneratorState $ Map.insert (fromString path) Built $ coerce incs
@@ -195,7 +194,7 @@ buildOrphanDeps = do
     f (_, ToBuild _) = True
     f (_, Built)     = False
 
-modulePartsToModules :: ModuleParts -> Ctx (Map FilePath HsModule')
+modulePartsToModules :: MP.ModuleParts -> Ctx (Map FilePath HsModule')
 modulePartsToModules = Hylo.hylo breakDown buildUp
 
 build :: ParserResult -> Either String (Map FilePath HsModule')

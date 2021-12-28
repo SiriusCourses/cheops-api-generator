@@ -3,6 +3,7 @@
 
 module Main where
 
+import           Control.Monad  (unless, when)
 import qualified Data.Bifunctor
 import           Data.Foldable  (Foldable (foldl'), for_, traverse_)
 import qualified Data.Map       as Map
@@ -18,22 +19,17 @@ import GHC.Paths     (libdir)
 import GHC.SourceGen (HsModule', showPpr)
 
 import qualified CLI
-import           Data.ConfigGen.Parsing  (ParserResult (..), postprocessParserResult,
-                                          dashesToUnderscore, transformStrings)
+import           Data.ConfigGen.Parsing  (ParserResult (..), dashesToUnderscore,
+                                          postprocessParserResult, transformStrings)
 import           Data.ConfigGen.Traverse (build)
 
-import           Control.Monad                           (unless, when)
-import           Data.ConfigGen.Parsing.IncludeInjection (eventsFromFile)
-import           Data.ConfigGen.TypeRep                  (ModuleParts (ModuleParts))
+import           Data.ConfigGen.ModuleParts              (ModuleParts (..))
+import           Data.ConfigGen.Parsing.IncludeInjection (RepositoryRoot (..), eventsFromFile)
 import qualified Data.ConfigGen.TypeRep                  as TR
 import           Data.Either                             (fromRight, isLeft, isRight, lefts)
-import Text.Casing (camel)
-
-newtype GeneratedModules =
-    GeneratedModules
-        { unGeneratedModules :: [(String, HsModule')]
-        }
-    deriving newtype (Semigroup, Monoid)
+import           Data.Maybe                              (fromJust, isJust)
+import qualified System.ProgressBar                      as PB
+import           Text.Casing                             (camel)
 
 collectFiles :: FilePath -> IO [FilePath]
 collectFiles path = do
@@ -47,7 +43,10 @@ main = do
         case chInput of
             CLI.File s -> return [s]
             CLI.Dir s  -> collectFiles s
-    content <- sequence <$> traverse (decodeHelper @ParserResult . eventsFromFile) files
+    crr <- canonicalizePath chRoot
+    content <-
+        sequence <$>
+        traverse (decodeHelper @ParserResult . eventsFromFile (RepositoryRoot crr)) files
     case content of
         Left pe -> print pe
         Right x0 -> do
@@ -75,8 +74,12 @@ main = do
             when chDebug $ putStrLn "-- Built Modules:"
             when chDebug $ print . Map.keys $ fromRight mempty b
             case b of
-                Left s   -> fail s
-                Right km -> saveModule $ Data.Bifunctor.first (chOutput </>) <$> Map.toList km
+                Left s -> fail s
+                Right km -> do
+                    putStrLn "Saving files:"
+                    pb <- PB.newProgressBar PB.defStyle 10 (PB.Progress 0 (Map.size km) ())
+                    let load = Data.Bifunctor.first (chOutput </>) <$> Map.toList km
+                    saveModules (Just pb) load
   where
     combineParserResults :: ParserResult -> (FilePath, ParserResult) -> ParserResult
     combineParserResults (ParserResult mainType deps) (p, ParserResult mainType' deps') =
@@ -107,8 +110,13 @@ main = do
                 when (isLeft err') $ do
                     putStrLn "Errors:"
                     print (head $ lefts [err'])
-    saveModule :: [(FilePath, HsModule')] -> IO ()
-    saveModule km = traverse_ (uncurry saveFile) km
+    saveModules :: Maybe (PB.ProgressBar ()) -> [(FilePath, HsModule')] -> IO ()
+    saveModules pb km =
+        traverse_
+            (\(p, m) -> do
+                 saveFile p m
+                 when (isJust pb) $ PB.incProgress (fromJust pb) 1)
+            km
       where
         saveFile :: String -> HsModule' -> IO ()
         saveFile path md = do
