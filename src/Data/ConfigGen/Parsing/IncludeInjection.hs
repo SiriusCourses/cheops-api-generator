@@ -18,7 +18,7 @@ import           Data.Conduit      (ConduitM, awaitForever, yield, (.|))
 import qualified Data.Conduit.List as CL
 
 import System.Directory (canonicalizePath, doesFileExist)
-import System.FilePath  (takeDirectory, (</>))
+import System.FilePath  (isAbsolute, joinPath, splitPath, takeDirectory, (</>))
 import System.IO.Error  (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
 
 newtype RepositoryRoot =
@@ -29,7 +29,7 @@ eventsFromFile (RepositoryRoot crr) = go [] []
   where
     go :: MonadResource m => [Event] -> [FilePath] -> FilePath -> ConduitM i Event m ()
     go injectedEvents seen fp = do
-        cfp <- liftIO $ handleNotFound $ rerootPath fp
+        cfp <- liftIO $ handleNotFound $ canonicalizePath =<< rerootPath Nothing fp
         when (cfp `elem` seen) $ liftIO $ throwIO CyclicIncludes
         Y.decodeFile cfp .| conduitInjector injectedEvents .| do
             awaitForever $ \event ->
@@ -37,7 +37,8 @@ eventsFromFile (RepositoryRoot crr) = go [] []
                     EventScalar f (UriTag "!include") _ _ -> do
                         includeFile <-
                             liftIO $
-                            canonicalizePath $ takeDirectory cfp </> T.unpack (T.decodeUtf8 f)
+                            canonicalizePath =<<
+                            rerootPath (Just $ takeDirectory cfp) (T.unpack (T.decodeUtf8 f))
                         let injectedEvents' =
                                 [ EventScalar "haskell/origin" NoTag Plain Nothing
                                 , EventScalar
@@ -50,12 +51,24 @@ eventsFromFile (RepositoryRoot crr) = go [] []
                             CL.filter (`notElem` irrelevantEvents)
                     _ -> yield event
     irrelevantEvents = [EventStreamStart, EventDocumentStart, EventDocumentEnd, EventStreamEnd]
-    rerootPath :: FilePath -> IO FilePath
-    rerootPath fp' = do
-        exists <- doesFileExist fp'
-        if exists
-            then canonicalizePath fp'
-            else canonicalizePath $ crr ++ fp' -- i have no clue why </> does not work
+    rerootPath :: Maybe FilePath -> FilePath -> IO FilePath
+    rerootPath curDir' fp'
+        | Just curDir <- curDir' = do
+            exists <- doesFileExist fp'
+            if isAbsolute fp' && not exists
+                then return rerooted
+                else return $ curDir </> fp'
+        | Nothing <- curDir' = do
+            exists <- doesFileExist fp'
+            if isAbsolute fp' && not exists
+                then return rerooted
+                else return fp'
+      where
+        rerooted :: FilePath
+        rerooted =
+            let split_rr = splitPath crr
+                split_fp = drop 1 $ splitPath fp' --dropping "/"
+             in joinPath $ split_rr ++ split_fp
     handleNotFound :: IO a -> IO a
     handleNotFound =
         handleJust

@@ -30,6 +30,7 @@ import           Data.Either                             (fromRight, isLeft, isR
 import           Data.Maybe                              (fromJust, isJust)
 import qualified System.ProgressBar                      as PB
 import           Text.Casing                             (camel)
+import           Util                                    (singleton)
 
 collectFiles :: FilePath -> IO [FilePath]
 collectFiles path = do
@@ -41,7 +42,7 @@ main = do
     CLI.CheckedInput {..} <- CLI.getCLIArgs
     files <-
         case chInput of
-            CLI.File s -> return [s]
+            CLI.File s -> singleton <$> canonicalizePath s
             CLI.Dir s  -> collectFiles s
     crr <- canonicalizePath chRoot
     content <-
@@ -68,6 +69,8 @@ main = do
             let acc =
                     transformStrings (camel . dashesToUnderscore) . postprocessParserResult $
                     foldl' combineParserResults ini res
+            when chDebug $ putStrLn "-- accumulated files"
+            when chDebug $ traverse_ (print . fst) $ deps acc
             when chDebug $ putStrLn "-- accumulated parser results"
             when chDebug $ print acc
             let b = build acc
