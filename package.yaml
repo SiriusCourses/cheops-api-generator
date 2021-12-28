@@ -59,6 +59,7 @@ dependencies:
 - MissingH
 - casing
 - scientific
+- terminal-progress-bar
 
 ghc-options:
 - -Wincomplete-patterns
