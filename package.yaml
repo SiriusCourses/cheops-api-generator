@@ -34,6 +34,7 @@ default-extensions:
 - GeneralizedNewtypeDeriving 
 - TupleSections
 - LambdaCase
+- DataKinds
 
 dependencies:
 - base >= 4.9 && < 5
