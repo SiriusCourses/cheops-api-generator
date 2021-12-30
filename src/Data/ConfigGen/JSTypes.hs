@@ -58,7 +58,6 @@ pattern NullTag = Prim PrimNullTag
 
 isPrimitive :: TypeTag -> Bool
 isPrimitive ObjectTag = False
-isPrimitive EnumTag   = False
 isPrimitive ArrayTag  = False
 isPrimitive _         = True
 
@@ -75,12 +74,9 @@ pattern RecordLike <- (isPrimitive -> False)
 parseTypeTag :: String -> Maybe TypeTag
 parseTypeTag "array"   = Just ArrayTag
 parseTypeTag "object"  = Just ObjectTag
-parseTypeTag "enum"    = Just EnumTag
 parseTypeTag "number"  = Just DoubleTag
 parseTypeTag "integer" = Just IntTag
 parseTypeTag "string"  = Just StringTag
-parseTypeTag "text"    = Just StringTag
-parseTypeTag "bool"    = Just BoolTag
 parseTypeTag "boolean" = Just BoolTag
 parseTypeTag "null"    = Just NullTag
 parseTypeTag _         = Nothing
