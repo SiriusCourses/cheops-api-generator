@@ -26,7 +26,7 @@ import qualified Data.ConfigGen.Parsing.LCP    as LCP
 import           Data.ConfigGen.Traverse.Utils (Title)
 import qualified Data.ConfigGen.Traverse.Utils as U
 import qualified Data.ConfigGen.TypeRep        as TR
-import           Data.List                     (intersperse, stripPrefix, (\\))
+import           Data.List                     (foldl', intersperse, stripPrefix, (\\))
 import           Data.List.Utils               (split)
 import           Data.Map                      (Map)
 import qualified Data.Map                      as Map
@@ -124,15 +124,17 @@ parseOneOf obj = do
 
 parseAnyOf :: Object -> StatefulParser ModuleParts
 parseAnyOf obj = do
-    (_ :: Array) <- lift (obj .: "anyOf")
+    (options :: [ModuleParts]) <- traverse parseDispatch =<< lift (obj .: "anyOf")
     title <- lift $ obj .:? "title"
-    return $ ModuleParts title mempty mempty TR.AnyOf
+    let ini = ModuleParts title mempty mempty $ TR.AnyOfType mempty
+    return $ foldr MP.appendAofPart ini $ zip [1..] options
 
 parseAllOf :: Object -> StatefulParser ModuleParts
 parseAllOf obj = do
-    (_ :: Array) <- lift (obj .: "allOf")
+    (options :: [ModuleParts]) <- traverse parseDispatch =<< lift (obj .: "allOf")
     title <- lift $ obj .:? "title"
-    return $ ModuleParts title mempty mempty TR.AllOf
+    let ini = ModuleParts title mempty mempty $ TR.AllOfType mempty
+    return $ foldr MP.appendAofPart ini $ zip [1..] options
 
 parseArray :: Object -> Maybe Title -> StatefulParser ModuleParts
 parseArray obj maybeTitle = do
@@ -229,7 +231,9 @@ postprocessParserResult (ParserResult mp incs) =
         | TR.ArrayType tr' <- tr = mpu' & declaration .~ TR.ArrayType (mapTypeRef tr')
         | TR.NewType tr' <- tr = mpu' & declaration .~ TR.NewType (mapTypeRef tr')
         | TR.Ref nltr <- tr = mpu' & declaration .~ TR.Ref (mapNonLocalRef nltr)
-        | otherwise = mp'
+        | TR.AllOfType set <- tr = mpu' & declaration .~ TR.AllOfType (Set.map mapTypeRef set)
+        | TR.AnyOfType set <- tr = mpu' & declaration .~ TR.AnyOfType (Set.map mapTypeRef set)
+        | otherwise = mpu'
       where
         mapField = \(TR.Field req tr') -> TR.Field req $ mapTypeRef tr'
         tr = _declaration mp'
@@ -270,7 +274,8 @@ transformStrings transform (ParserResult mp deps) =
     transformTypeRep (TR.Ref (TR.RefExternalType nm tn)) =
         TR.Ref $ TR.RefExternalType (transform nm) (transform tn)
     transformTypeRep (TR.Ref (TR.RefPrimitiveType nm)) = TR.Ref . TR.RefPrimitiveType $ nm
-    transformTypeRep x = x
+    transformTypeRep (TR.AnyOfType set) = TR.AnyOfType $ Set.map transfromTypeRef set
+    transformTypeRep (TR.AllOfType set) = TR.AllOfType $ Set.map transfromTypeRef set
     transfromTypeRef :: TR.TypeRef -> TR.TypeRef
     transfromTypeRef (TR.ReferenceToLocalType s tn) =
         TR.ReferenceToLocalType (transform s) (transform tn)

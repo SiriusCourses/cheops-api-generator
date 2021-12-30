@@ -21,6 +21,7 @@ import GHC.Generics (Generic)
 import Data.Yaml (ToJSON)
 
 import Data.Map (Map)
+import Data.Set (Set)
 
 type ModuleName = String
 
@@ -31,24 +32,23 @@ type FieldName = String
 data TypeRef
     = ExtRef NonLocalRef
     | LocRef LocalReference
-    deriving (Show, Eq, Generic)
+    deriving (Show, Eq, Generic, Ord)
     deriving anyclass (ToJSON)
 
 data LocalReference =
     LocalReference FieldName TypeName
-    deriving (Generic)
-    deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord, Generic)
     deriving anyclass (ToJSON)
 
 data NonLocalRef
     = RefPrimitiveType String
     | RefExternalType ModuleName TypeName
-    deriving (Show, Eq, Generic)
+    deriving (Show, Eq, Generic, Ord)
     deriving anyclass (ToJSON)
 
 data Field =
     Field Bool TypeRef
-    deriving (Show, Eq, Generic)
+    deriving (Show, Eq, Generic, Ord)
     deriving (ToJSON)
 
 type SumConstr = SumConstrF Field
@@ -58,18 +58,18 @@ newtype SumConstrF a =
         { unSumConstr :: [a]
         }
     deriving (Show, Eq, Generic)
-    deriving newtype (Functor, Applicative, Monad)
+    deriving newtype (Functor, Applicative, Monad, Ord)
     deriving anyclass (ToJSON)
 
 data TypeRep
     = ProdType (Map FieldName Field)
     | SumType (Map FieldName SumConstr)
-    | AnyOf
-    | AllOf
+    | AnyOfType (Set TypeRef)
+    | AllOfType (Set TypeRef)
     | ArrayType TypeRef
     | NewType TypeRef
     | Ref NonLocalRef
-    deriving (Show, Eq, Generic)
+    deriving (Show, Eq, Generic, Ord)
     deriving anyclass (ToJSON)
 
 pattern ReferenceToLocalType :: FieldName -> TypeName -> TypeRef

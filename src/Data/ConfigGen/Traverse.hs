@@ -27,8 +27,8 @@ import           Data.ConfigGen.TypeRep        (ModuleName, TypeRep)
 import qualified Data.ConfigGen.TypeRep        as TR
 
 import GHC.SourceGen (ConDecl', Field, HsDecl', HsModule', HsType', ImportDecl', Var (var),
-                      data', field, import', module', newtype', prefixCon, qualified',
-                      recordCon, strict, type', (@@))
+                      data', field, import', listPromotedTy, module', newtype', prefixCon,
+                      qualified', recordCon, strict, type', (@@))
 
 data Dep a
     = Built
@@ -100,8 +100,13 @@ buildModule Payload {..} prefix =
     typename = U.prefixToTypeName prefix title
     gatherLocalImports :: TR.TypeRep -> [ImportDecl']
     gatherLocalImports tr
-        | TR.AllOf <- tr = mempty
-        | TR.AnyOf <- tr = mempty
+        | TR.AllOfType set <- tr =
+            qualified' . import' . fromString <$> gather set <> ["Data.ConfigGen.JSTypes.AOf"]
+        | TR.AnyOfType set <- tr =
+            qualified' . import' . fromString <$> gather set <> ["Data.ConfigGen.JSTypes.AOf"]
+      where
+        gather :: Set TR.TypeRef -> [String]
+        gather set = catMaybes . Set.toList $ Set.map (U.referenceToModuleName prefix) set
     gatherLocalImports tr
         | (TR.ProdType map') <- tr = gatherProd map'
         | (TR.SumType map') <- tr = gatherSum map'
@@ -133,10 +138,20 @@ buildModule Payload {..} prefix =
         maybeWrapper True  = (var "Maybe" @@)
         maybeWrapper False = id
     buildTypeDecl :: TR.TypeRep -> HsDecl'
-    buildTypeDecl TR.AnyOf =
-        data' (fromString typename) [] [prefixCon "AnyOf" []] U.defaultDerivingCause
-    buildTypeDecl TR.AllOf =
-        data' (fromString typename) [] [prefixCon "AllOf" []] U.defaultDerivingCause
+    buildTypeDecl tr
+        | (TR.AnyOfType set) <- tr = aofBuild set "Data.ConfigGen.JSTypes.AOf.AnyOf"
+        | (TR.AllOfType set) <- tr = aofBuild set "Data.ConfigGen.JSTypes.AOf.AllOf"
+      where
+        aofBuild :: Set TR.TypeRef -> String -> HsDecl'
+        aofBuild set aof =
+            let tlist = var . fromString . U.referenceToQualTypeName prefix <$> Set.toList set
+             in newtype'
+                    (fromString typename)
+                    []
+                    (prefixCon
+                         (fromString typename)
+                         [field $ (var . fromString $ aof) @@ listPromotedTy tlist])
+                    U.defaultDerivingCause
     buildTypeDecl (TR.ProdType map') =
         data' (fromString typename) [] [buildProdCon map'] U.defaultDerivingCause
       where
