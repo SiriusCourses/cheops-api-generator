@@ -101,15 +101,17 @@ buildModule Payload {..} prefix =
     gatherLocalImports :: TR.TypeRep -> [ImportDecl']
     gatherLocalImports tr
         | TR.AllOfType set <- tr =
-            qualified' . import' . fromString <$> gather set <> ["Data.ConfigGen.JSTypes.AOf"]
+            qualified' . import' . fromString <$> (gather set <> ["Data.ConfigGen.Deriv"])
         | TR.AnyOfType set <- tr =
-            qualified' . import' . fromString <$> gather set <> ["Data.ConfigGen.JSTypes.AOf"]
+            qualified' . import' . fromString <$> (gather set <> ["Data.ConfigGen.Deriv"])
       where
         gather :: Set TR.TypeRef -> [String]
         gather set = catMaybes . Set.toList $ Set.map (U.referenceToModuleName prefix) set
     gatherLocalImports tr
         | (TR.ProdType map') <- tr = gatherProd map'
         | (TR.SumType map') <- tr = gatherSum map'
+        | (TR.OneOf map') <- tr =
+            gatherSum map' <> (qualified' . import' <$> ["Data.ConfigGen.Deriv"])
       where
         gatherSum :: Map U.FieldName TR.SumConstr -> [ImportDecl']
         gatherSum = (catMaybes . snd) <=< Map.toList . fmap TR.unSumConstr . Map.map (fmap go)
@@ -135,32 +137,39 @@ buildModule Payload {..} prefix =
          in strict . field $ maybeWrapper req tt
       where
         maybeWrapper :: Bool -> HsType' -> HsType'
-        maybeWrapper True  = (var "Maybe" @@)
-        maybeWrapper False = id
+        maybeWrapper False = (var "Maybe" @@)
+        maybeWrapper True  = id
     buildTypeDecl :: TR.TypeRep -> HsDecl'
-    buildTypeDecl tr
-        | (TR.AnyOfType set) <- tr = aofBuild set "Data.ConfigGen.JSTypes.AOf.AnyOf"
-        | (TR.AllOfType set) <- tr = aofBuild set "Data.ConfigGen.JSTypes.AOf.AllOf"
+    buildTypeDecl (TR.AnyOfType set) =
+        data'
+            (fromString typename)
+            []
+            [prefixCon (fromString typename) fields]
+            (U.aofDerivingClause typename)
       where
-        aofBuild :: Set TR.TypeRef -> String -> HsDecl'
-        aofBuild set aof =
-            let tlist = var . fromString . U.referenceToQualTypeName prefix <$> Set.toList set
-             in newtype'
-                    (fromString typename)
-                    []
-                    (prefixCon
-                         (fromString typename)
-                         [field $ (var . fromString $ aof) @@ listPromotedTy tlist])
-                    U.defaultDerivingCause
+        fields =
+            field . (var "Maybe" @@) . var . fromString . U.referenceToQualTypeName prefix <$>
+            Set.toList set
+    buildTypeDecl (TR.AllOfType set) =
+        data'
+            (fromString typename)
+            []
+            [prefixCon (fromString typename) fields]
+            (U.aofDerivingClause typename)
+      where
+        fields = field . var . fromString . U.referenceToQualTypeName prefix <$> Set.toList set
     buildTypeDecl (TR.ProdType map') =
-        data' (fromString typename) [] [buildProdCon map'] U.defaultDerivingCause
+        data' (fromString typename) [] [buildProdCon map'] U.defaultDerivingClause
       where
         buildProdCon :: Map TR.FieldName TR.Field -> ConDecl'
         buildProdCon km =
             recordCon (fromString typename) $
             bimap (fromString . U.changeReservedNames) transformField <$> Map.toList km
-    buildTypeDecl (TR.SumType map') =
-        data' (fromString typename) [] (buildSumCon's map') U.defaultDerivingCause
+    buildTypeDecl tr
+        | (TR.SumType map') <- tr =
+            data' (fromString typename) [] (buildSumCon's map') U.defaultDerivingClause
+        | (TR.OneOf map') <- tr =
+            data' (fromString typename) [] (buildSumCon's map') (U.aofDerivingClause typename)
       where
         buildSumCon's :: Map TR.FieldName TR.SumConstr -> [ConDecl']
         buildSumCon's km =
@@ -178,7 +187,7 @@ buildModule Payload {..} prefix =
             newtypename
             []
             (recordCon constructorName [(getter, internalType)])
-            U.defaultDerivingCause
+            U.defaultDerivingClause
       where
         newtypename = fromString typename
         constructorName = fromString typename

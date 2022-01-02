@@ -31,19 +31,19 @@ data ModuleParts =
 makeLenses ''ModuleParts
 
 appendAofPart :: (Int, ModuleParts) -> ModuleParts -> ModuleParts
-appendAofPart (i, new) ModuleParts {..} = let 
-        fieldName = U.unnamed ++ show i
-    in case new ^. declaration of
-        TR.Ref (TR.RefPrimitiveType s) ->
-            ModuleParts _jsTitle _externalDeps _localDeps $
-            appendToTypeRep _declaration (TR.ReferenceToPrimitiveType s)
-        TR.Ref (TR.RefExternalType extName tn) ->
-            ModuleParts _jsTitle (Set.insert extName _externalDeps) _localDeps $
-            appendToTypeRep _declaration (TR.ReferenceToExternalType extName tn)
-        _local ->
-            let typename = U.chooseName fieldName (new ^. jsTitle)
-             in ModuleParts _jsTitle _externalDeps (Map.insert fieldName new _localDeps) $
-                appendToTypeRep _declaration (TR.ReferenceToLocalType fieldName typename)
+appendAofPart (i, new) ModuleParts {..} =
+    let fieldName = U.unnamed ++ show i
+     in case new ^. declaration of
+            TR.Ref (TR.RefPrimitiveType s) ->
+                ModuleParts _jsTitle _externalDeps _localDeps $
+                appendToTypeRep _declaration (TR.ReferenceToPrimitiveType s)
+            TR.Ref (TR.RefExternalType extName tn) ->
+                ModuleParts _jsTitle (Set.insert extName _externalDeps) _localDeps $
+                appendToTypeRep _declaration (TR.ReferenceToExternalType extName tn)
+            _local ->
+                let typename = U.chooseName fieldName (new ^. jsTitle)
+                 in ModuleParts _jsTitle _externalDeps (Map.insert fieldName new _localDeps) $
+                    appendToTypeRep _declaration (TR.ReferenceToLocalType fieldName typename)
   where
     appendToTypeRep :: TR.TypeRep -> TR.TypeRef -> TR.TypeRep
     appendToTypeRep (TR.AllOfType set) tr = TR.AllOfType $ Set.insert tr set
@@ -72,4 +72,5 @@ appendRecord fieldName (record, req) ModuleParts {..} =
     appendToTypeRep :: TR.TypeRep -> TR.FieldName -> TR.Field -> TR.TypeRep
     appendToTypeRep (TR.ProdType km) k tr = TR.ProdType $ Map.insert k tr km
     appendToTypeRep (TR.SumType km) k tr  = TR.SumType $ Map.insert k (TR.SumConstr [tr]) km
+    appendToTypeRep (TR.OneOf km) k tr    = TR.OneOf $ Map.insert k (TR.SumConstr [tr]) km
     appendToTypeRep x _ _                 = x

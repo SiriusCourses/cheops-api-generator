@@ -64,6 +64,7 @@ newtype SumConstrF a =
 data TypeRep
     = ProdType (Map FieldName Field)
     | SumType (Map FieldName SumConstr)
+    | OneOf (Map FieldName SumConstr)
     | AnyOfType (Set TypeRef)
     | AllOfType (Set TypeRef)
     | ArrayType TypeRef

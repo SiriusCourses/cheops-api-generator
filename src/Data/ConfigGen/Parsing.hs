@@ -119,7 +119,7 @@ parseOneOf obj = do
         Map.map (, True) . Map.fromList . zip (fmap (\n -> "Unnamed" ++ show n) [1 :: Int ..]) <$>
         (traverse parseDispatch =<< lift (obj .: "oneOf"))
     title <- lift $ obj .:? "title"
-    let ini = ModuleParts title mempty mempty $ TR.SumType mempty
+    let ini = ModuleParts title mempty mempty $ TR.OneOf mempty
     return $ Map.foldrWithKey MP.appendRecord ini options
 
 parseAnyOf :: Object -> StatefulParser ModuleParts
@@ -127,14 +127,14 @@ parseAnyOf obj = do
     (options :: [ModuleParts]) <- traverse parseDispatch =<< lift (obj .: "anyOf")
     title <- lift $ obj .:? "title"
     let ini = ModuleParts title mempty mempty $ TR.AnyOfType mempty
-    return $ foldr MP.appendAofPart ini $ zip [1..] options
+    return $ foldr MP.appendAofPart ini $ zip [1 ..] options
 
 parseAllOf :: Object -> StatefulParser ModuleParts
 parseAllOf obj = do
     (options :: [ModuleParts]) <- traverse parseDispatch =<< lift (obj .: "allOf")
     title <- lift $ obj .:? "title"
     let ini = ModuleParts title mempty mempty $ TR.AllOfType mempty
-    return $ foldr MP.appendAofPart ini $ zip [1..] options
+    return $ foldr MP.appendAofPart ini $ zip [1 ..] options
 
 parseArray :: Object -> Maybe Title -> StatefulParser ModuleParts
 parseArray obj maybeTitle = do
@@ -228,6 +228,7 @@ postprocessParserResult (ParserResult mp incs) =
     go mp'
         | TR.ProdType km <- tr = mpu' & declaration .~ TR.ProdType (mapField <$> km)
         | TR.SumType km <- tr = mpu' & declaration .~ TR.SumType (fmap mapField <$> km)
+        | TR.OneOf km <- tr = mpu' & declaration .~ TR.OneOf (fmap mapField <$> km)
         | TR.ArrayType tr' <- tr = mpu' & declaration .~ TR.ArrayType (mapTypeRef tr')
         | TR.NewType tr' <- tr = mpu' & declaration .~ TR.NewType (mapTypeRef tr')
         | TR.Ref nltr <- tr = mpu' & declaration .~ TR.Ref (mapNonLocalRef nltr)
@@ -269,6 +270,8 @@ transformStrings transform (ParserResult mp deps) =
         TR.ProdType $ Map.mapKeys transform . Map.map transformField $ km
     transformTypeRep (TR.SumType km) =
         TR.SumType $ Map.mapKeys transform . Map.map (fmap transformField) $ km
+    transformTypeRep (TR.OneOf km) =
+        TR.OneOf $ Map.mapKeys transform . Map.map (fmap transformField) $ km
     transformTypeRep (TR.ArrayType tr') = TR.ArrayType $ transfromTypeRef tr'
     transformTypeRep (TR.NewType tr') = TR.NewType $ transfromTypeRef tr'
     transformTypeRep (TR.Ref (TR.RefExternalType nm tn)) =
