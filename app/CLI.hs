@@ -4,6 +4,13 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TypeOperators     #-}
 
+{-|
+Module      : CLI
+Description : Module where command line options are specified
+
+Command line properities are specified here. Function which checks if these options are valid is also here.
+-}
+
 module CLI
     ( getCLIArgs
     , CheckedInput(..)
@@ -15,6 +22,7 @@ import Options.Generic
 import System.Directory (canonicalizePath, doesDirectoryExist)
 import System.Posix     (getFileStatus, isDirectory, isRegularFile)
 
+-- | Command line options defined according to specification in 'Options' package.
 data Input =
     Input
         { print_internal_repr :: Bool <?> "If enabled will print to stdout an internal representation of generated code"
@@ -27,22 +35,34 @@ data Input =
 
 instance ParseRecord Input
 
+-- | Data to store information about either file or directory is specified in command line options
 data CheckedPath
     = File FilePath
     | Dir FilePath
 
+-- | Data to store processed command line options.
 data CheckedInput =
     CheckedInput
-        { chPrint_internal_repr :: Bool
+        { 
+      -- | Same value as passed in command line arguments
+            chPrint_internal_repr :: Bool
+      -- | Same value as passed in command line arguments
         , chDebug               :: Bool
+      -- | Input path is chekced for existence and is it a directory or a file
         , chInput               :: CheckedPath
+      -- | Output path is chekced for existence and is it a directory or a file
         , chOutput              :: FilePath
+      -- | Optional root of a repository where json specification is stored. Very useful if there are absolute paths relative to the this root.
         , chRoot                :: FilePath
         }
 
+-- | Fucntion for getting checked input from command line
 getCLIArgs :: IO CheckedInput
-getCLIArgs = do
-    Input {..} <- getRecord "cmd args"
+getCLIArgs = checkArgs =<< getRecord "cmd args"
+
+-- | Transforms raw input to checked input. Unwrapes type magic and checks if input and output paths are correct
+checkArgs :: Input -> IO CheckedInput
+checkArgs Input {..} = do
     inputStatus <- getFileStatus $ unHelpful input
     outputStatus <- getFileStatus $ unDefValue . unHelpful $ output
     rootExists <- doesDirectoryExist $ unDefValue . unHelpful $ repository_root
