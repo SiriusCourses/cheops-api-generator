@@ -60,7 +60,7 @@ data CheckedInput =
 getCLIArgs :: IO CheckedInput
 getCLIArgs = checkArgs =<< getRecord "cmd args"
 
--- | Transforms raw input to checked input. Unwrapes type magic and checks if input and output paths are correct
+-- | Transforms raw input to checked input. Unwrapes type magic and checks if input, output and root paths are correct
 checkArgs :: Input -> IO CheckedInput
 checkArgs Input {..} = do
     inputStatus <- getFileStatus $ unHelpful input
