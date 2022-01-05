@@ -19,14 +19,14 @@ import GHC.Paths     (libdir)
 import GHC.SourceGen (HsModule', showPpr)
 
 import qualified CLI
-import           Data.ConfigGen.Parsing  (ParserResult (..), dashesToUnderscore,
+import           Data.TransportTypes.Parsing  (ParserResult (..), dashesToUnderscore,
                                           postprocessParserResult, transformStrings)
-import           Data.ConfigGen.Traverse (build)
+import           Data.TransportTypes.CodeGen (buildModules)
 
 import           Conduit                                 (liftIO)
-import           Data.ConfigGen.ModuleParts              (ModuleParts (..))
-import           Data.ConfigGen.Parsing.IncludeInjection (RepositoryRoot (..), eventsFromFile)
-import qualified Data.ConfigGen.TypeRep                  as TR
+import           Data.TransportTypes.ModuleParts              (ModuleParts (..))
+import           Data.TransportTypes.Parsing.IncludeInjection (RepositoryRoot (..), eventsFromFile)
+import qualified Data.TransportTypes.TypeRep                  as TR
 import           Data.Either                             (fromRight, isLeft, isRight, lefts)
 import           Data.Maybe                              (fromJust, isJust)
 import qualified System.ProgressBar                      as PB
@@ -85,7 +85,7 @@ main = do
             when chPrint_internal_repr $ putStrLn "-- accumulated parser results"
             when chPrint_internal_repr $ print acc
             putStrLn "Building modules..."
-            b <- pure $ build acc
+            b <- pure $ buildModules acc
             putStrLn "Modules are built!"
             when chPrint_internal_repr $ putStrLn "-- Built Modules:"
             when chPrint_internal_repr $ print . Map.keys $ fromRight mempty b

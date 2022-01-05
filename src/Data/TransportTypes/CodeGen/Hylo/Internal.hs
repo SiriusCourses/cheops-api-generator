@@ -1,4 +1,4 @@
-module Data.ConfigGen.Traverse.Hylo where
+module Data.TransportTypes.CodeGen.Hylo.Internal where
 import Control.Arrow ((>>>))
 
 newtype Term f =

@@ -1,9 +1,10 @@
 {-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Data.ConfigGen.Deriv where
+module Data.TransportTypes.Deriv where
 
-import           Data.Yaml    (Object, Parser, ToJSON (..), Value (..), object)
+import Data.Yaml (Object, ToJSON (..), Value (..))
+
 import           GHC.Generics
 import qualified GHC.Generics as G
 
@@ -31,6 +32,6 @@ instance GToJSON f => GToJSON (G.M1 i c f) where
 instance (GToJSON a, GToJSON b) => GToJSON (a :*: b) where
     gToJSON (a :*: b) = gToJSON a <> gToJSON b
 
-instance (GToJSON a, GToJSON b) => GToJSON (a G.:+: b) where
+instance (GToJSON a, GToJSON b) => GToJSON (a :+: b) where
     gToJSON (L1 x) = gToJSON x
     gToJSON (R1 x) = gToJSON x

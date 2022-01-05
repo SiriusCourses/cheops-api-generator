@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE PatternSynonyms #-}
 
-module Data.ConfigGen.TypeRep
+module Data.TransportTypes.TypeRep
     ( TypeRef(.., ReferenceToExternalType, ReferenceToPrimitiveType,
         ReferenceToLocalType)
     , TypeRep(..)

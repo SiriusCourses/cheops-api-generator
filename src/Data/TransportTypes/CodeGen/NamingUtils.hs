@@ -1,19 +1,19 @@
 {-|
-Module      : Data.ConfigGen.Traverse.Utils
+Module      : Data.TransportTypes.Traverse.Utils
 Description : Helper functions for getting type names and module names from title and prefix
 -}
+module Data.TransportTypes.CodeGen.NamingUtils where
 
-module Data.ConfigGen.Traverse.Utils where
-
-import qualified Data.ConfigGen.TypeRep as TR
-import           Data.Function          ((&))
-import           Data.List              (intersperse)
-import           Data.Maybe             (fromMaybe)
-import           Data.String            (fromString)
-import           GHC.SourceGen
-import           System.FilePath        (dropExtension, takeBaseName, (<.>), (</>))
-import           Text.Casing            (pascal)
-import           Util                   (capitalise, split)
+import           Data.Function               ((&))
+import           Data.List                   (intersperse)
+import           Data.Maybe                  (fromMaybe)
+import           Data.String                 (fromString)
+import qualified Data.TransportTypes.TypeRep as TR
+import           GHC.SourceGen               (App ((@@)), HsDerivingClause', Var (var),
+                                              deriving', derivingAnyclass, derivingVia)
+import           System.FilePath             (dropExtension, takeBaseName, (<.>), (</>))
+import           Text.Casing                 (pascal)
+import           Util                        (capitalise, split)
 
 type ModulePrefix = [String]
 
@@ -66,25 +66,25 @@ referenceToQualTypeName _ (TR.ReferenceToPrimitiveType s) = s
 referenceToQualTypeName prefix (TR.ReferenceToLocalType fieldName tn) =
     prefixToQualTypeName (fieldName : prefix) (Just $ capitalise tn)
 
--- | Converts type reference as in 'Data.ConfigGen.TypeRep' to non-qualified type name exported be corresponding module
+-- | Converts type reference as in 'Data.TransportTypes.TypeRep' to non-qualified type name exported be corresponding module
 referenceToTypeName :: TR.TypeRef -> TR.TypeName
 referenceToTypeName (TR.ReferenceToExternalType _ tn) = capitalise tn
 referenceToTypeName (TR.ReferenceToPrimitiveType s)   = s
 referenceToTypeName (TR.ReferenceToLocalType _ tn)    = capitalise tn
 
--- | Converts type reference as in 'Data.ConfigGen.TypeRep' to qualified module name. Returns 'Nothing' in case of primitive type
+-- | Converts type reference as in 'Data.TransportTypes.TypeRep' to qualified module name. Returns 'Nothing' in case of primitive type
 referenceToModuleName :: ModulePrefix -> TR.TypeRef -> Maybe ModuleName
 referenceToModuleName _ (TR.ExtRef tr) = nonLocalReferenceToModuleName tr
 referenceToModuleName prefix (TR.LocRef (TR.LocalReference s _)) =
     Just $ mconcat . reverse . intersperse "." $ capitalise s : prefix
 
--- | Converts non-local type reference as in 'Data.ConfigGen.TypeRep' to qualified module name. Returns 'Nothing' in case of primitive type
+-- | Converts non-local type reference as in 'Data.TransportTypes.TypeRep' to qualified module name. Returns 'Nothing' in case of primitive type
 nonLocalReferenceToModuleName :: TR.NonLocalRef -> Maybe ModuleName
 nonLocalReferenceToModuleName (TR.RefPrimitiveType _) = Nothing
 nonLocalReferenceToModuleName (TR.RefExternalType absPath _) =
     Just . prefixToModuleName . pathToPrefix $ absPath
 
--- | Converts non-local type reference as in 'Data.ConfigGen.TypeRep' to qualified type name exproted be corresponding module. Returns 'Nothing' in case of primitive type
+-- | Converts non-local type reference as in 'Data.TransportTypes.TypeRep' to qualified type name exproted be corresponding module. Returns 'Nothing' in case of primitive type
 nonLocalReferenceToQualTypeName :: TR.NonLocalRef -> QualTypeName
 nonLocalReferenceToQualTypeName (TR.RefPrimitiveType s) = s
 nonLocalReferenceToQualTypeName (TR.RefExternalType absPath tn) =
@@ -146,5 +146,5 @@ aofDerivingClause typename = [tojson, fromjson, generic]
     fromjson = derivingAnyclass [var "Data.Yaml.FromJSON"]
     tojson =
         derivingVia
-            (var "Data.ConfigGen.Deriv.AOf" @@ (var . fromString $ typename))
+            (var "Data.TransportTypes.Deriv.AOf" @@ (var . fromString $ typename))
             [var "Data.Yaml.ToJSON"] --, var "Data.Yaml.FromJSON"]

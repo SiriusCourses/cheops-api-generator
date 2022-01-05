@@ -1,7 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns    #-}
 
-module Data.ConfigGen.JSTypes
+module Data.TransportTypes.JSTypes
     ( TypeTag(.., Primitive, RecordLike, ObjectTag, EnumTag, IntTag,
         DoubleTag, StringTag, NullTag, BoolTag)
     , parseTypeTag

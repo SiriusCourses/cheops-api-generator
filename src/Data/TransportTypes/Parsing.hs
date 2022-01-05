@@ -4,34 +4,33 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
-module Data.ConfigGen.Parsing where
+module Data.TransportTypes.Parsing where
 
-import Control.Lens               (makeLenses, (%~), (&), (.~), (<&>), (^.))
-import Control.Monad.State.Strict (MonadTrans (lift), StateT (runStateT), get, modify)
+import Control.Lens (makeLenses, (%~), (&), (.~), (<&>), (^.))
 
 import Data.Aeson.Types (prependFailure, typeMismatch)
-import Data.Yaml        (Array, FromJSON (..), Object, Parser, ToJSON, Value (..), (.!=), (.:),
-                         (.:?))
+import Data.Yaml        (FromJSON (..), Object, Parser, ToJSON, Value (..), (.!=), (.:), (.:?))
 
+import           Control.Applicative        ((<|>))
+import           Control.Monad.State.Strict (MonadTrans (lift), StateT (runStateT), get,
+                                             modify)
 import qualified Data.Bifunctor
-import           Data.Maybe     (fromJust, fromMaybe)
-import qualified Data.Set       as Set
-import           Data.String    (IsString (fromString))
+import           Data.List                  (intersperse, stripPrefix, (\\))
+import           Data.List.Utils            (split)
+import           Data.Map                   (Map)
+import qualified Data.Map                   as Map
+import           Data.Maybe                 (fromJust, fromMaybe)
+import qualified Data.Set                   as Set
+import           Data.String                (IsString (fromString))
+import           GHC.Generics               (Generic)
+import           System.FilePath            (pathSeparator, takeBaseName, (</>))
 
-import           Control.Applicative           ((<|>))
-import qualified Data.ConfigGen.JSTypes        as JS
-import           Data.ConfigGen.ModuleParts    (ModuleParts (..))
-import qualified Data.ConfigGen.ModuleParts    as MP
-import qualified Data.ConfigGen.Parsing.LCP    as LCP
-import           Data.ConfigGen.Traverse.Utils (Title)
-import qualified Data.ConfigGen.Traverse.Utils as U
-import qualified Data.ConfigGen.TypeRep        as TR
-import           Data.List                     (foldl', intersperse, stripPrefix, (\\))
-import           Data.List.Utils               (split)
-import           Data.Map                      (Map)
-import qualified Data.Map                      as Map
-import           GHC.Generics                  (Generic)
-import           System.FilePath               (pathSeparator, takeBaseName, (</>))
+import qualified Data.TransportTypes.CodeGen.NamingUtils as U
+import qualified Data.TransportTypes.JSTypes             as JS
+import           Data.TransportTypes.ModuleParts         (ModuleParts (..))
+import qualified Data.TransportTypes.ModuleParts         as MP
+import qualified Data.TransportTypes.Parsing.LCP         as LCP
+import qualified Data.TransportTypes.TypeRep             as TR
 
 newtype ParserState =
     ParserState
@@ -98,7 +97,7 @@ parseDispatch obj = do
             JS.parseTypeTag <$> (obj .:? "type" .!= "object")
         maybe (fail $ "Found incorect type here: " ++ show obj) return maybeJsTypeTag
     retrieveCachedInclude ::
-           Maybe Title
+           Maybe U.Title
         -> Maybe Origin
         -> StatefulParser ModuleParts -- how to cache if not yet cached
         -> StatefulParser ModuleParts
@@ -136,7 +135,7 @@ parseAllOf obj = do
     let ini = ModuleParts title mempty mempty $ TR.AllOfType mempty
     return $ foldr MP.appendAofPart ini $ zip [1 ..] options
 
-parseArray :: Object -> Maybe Title -> StatefulParser ModuleParts
+parseArray :: Object -> Maybe U.Title -> StatefulParser ModuleParts
 parseArray obj maybeTitle = do
     let itemField :: String = "items"
     itemsModule <- parseDispatch =<< lift (obj .: fromString itemField)
@@ -154,12 +153,12 @@ parseArray obj maybeTitle = do
                 ModuleParts maybeTitle mempty (Map.singleton itemField itemsModule) $
                 TR.ArrayType (TR.ReferenceToLocalType itemField tn)
 
-parseStringEnum :: [String] -> Maybe Title -> ModuleParts
+parseStringEnum :: [String] -> Maybe U.Title -> ModuleParts
 parseStringEnum enum title = ModuleParts title mempty mempty typeRep
   where
     typeRep = TR.SumType . Map.fromList $ (, TR.SumConstr []) <$> enum
 
-parsePrimitve :: JS.PrimitiveTag -> Maybe Title -> Maybe TypeInfo -> StatefulParser ModuleParts
+parsePrimitve :: JS.PrimitiveTag -> Maybe U.Title -> Maybe TypeInfo -> StatefulParser ModuleParts
 parsePrimitve typeTag maybeTitle tInfo = do
     let newtypeWrapper =
             case maybeTitle of
@@ -173,7 +172,7 @@ parsePrimitve typeTag maybeTitle tInfo = do
             JS.PrimBoolTag   -> "Bool"
             JS.PrimNullTag   -> "()"
 
-parseRecordLike :: Object -> JS.RecordLikeTag -> Maybe Title -> StatefulParser ModuleParts
+parseRecordLike :: Object -> JS.RecordLikeTag -> Maybe U.Title -> StatefulParser ModuleParts
 parseRecordLike obj typeTag title = do
     (reqs :: [TR.FieldName]) <- lift $ obj .:? "required" .!= mempty
     (properties :: Map TR.FieldName (Object, Bool)) <-

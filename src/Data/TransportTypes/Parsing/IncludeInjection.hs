@@ -1,4 +1,4 @@
-module Data.ConfigGen.Parsing.IncludeInjection where
+module Data.TransportTypes.Parsing.IncludeInjection where
 
 import Control.Exception (handleJust, throwIO)
 import Data.Foldable     (traverse_)

@@ -3,7 +3,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Data.ConfigGen.ModuleParts where
+module Data.TransportTypes.ModuleParts where
 
 import           Control.Lens (makeLenses, (^.))
 import           Data.Set     (Set)
@@ -15,8 +15,8 @@ import Data.Yaml (ToJSON)
 import           Data.Map (Map)
 import qualified Data.Map as Map
 
-import qualified Data.ConfigGen.Traverse.Utils as U
-import qualified Data.ConfigGen.TypeRep        as TR
+import qualified Data.TransportTypes.CodeGen.NamingUtils as U
+import qualified Data.TransportTypes.TypeRep        as TR
 
 data ModuleParts =
     ModuleParts
