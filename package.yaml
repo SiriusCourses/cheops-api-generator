@@ -63,11 +63,15 @@ dependencies:
 - casing
 - scientific
 - terminal-progress-bar
+- QuickCheck
+- generic-random
+- quickcheck-instances
 
 ghc-options:
 - -Wincomplete-patterns
 - -Wall
-- -Wno-unused-imports
+# - -Wno-unused-imports
+# - -fno-warn-orphans
 - -Wcompat
 - -Wincomplete-record-updates
 - -Wredundant-constraints
@@ -97,7 +101,9 @@ executables:
 tests:
   config-generation-test:
     main:                Spec.hs
-    source-dirs:         test
+    source-dirs:         
+    - test
+    # - generated-api/test
     ghc-options:
     - -threaded
     - -rtsopts
