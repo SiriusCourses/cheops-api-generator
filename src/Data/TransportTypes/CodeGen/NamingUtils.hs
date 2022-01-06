@@ -119,6 +119,14 @@ getterName = ("un" ++)
 globalPrefix :: FilePath
 globalPrefix = "Cheops" </> "Transport"
 
+-- | Constant for makeing test module
+testSuffix :: String
+testSuffix = "Test"
+
+-- | Converts qualified moduele name to corresponding qualified test module name
+testNameFromModuleName :: TR.ModuleName -> TR.ModuleName
+testNameFromModuleName mn = mconcat . intersperse "." $ split '.' mn ++ [testSuffix]
+
 -- | Constant for default imports
 defaultImportNames :: [String]
 defaultImportNames =
