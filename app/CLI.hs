@@ -10,7 +10,6 @@ Description : Module where command line options are specified
 
 Command line properities are specified here. Function which checks if these options are valid is also here.
 -}
-
 module CLI
     ( getCLIArgs
     , CheckedInput(..)
@@ -30,6 +29,8 @@ data Input =
         , input :: FilePath <?> "A directory or a file where to start generation from"
         , output :: FilePath <!> "." <?> "A directory where to store generated files"
         , repository_root :: FilePath <!> "/" <?> "Specifies root for absolute paths, defaults to system root"
+        , no_modules :: Bool <?> "If enabled no modules are built"
+        , no_tests :: Bool <?> "If enabled no tests are built"
         }
     deriving (Generic, Show)
 
@@ -54,6 +55,8 @@ data CheckedInput =
         , chOutput              :: FilePath
       -- | Optional root of a repository where json specification is stored. Very useful if there are absolute paths relative to the this root.
         , chRoot                :: FilePath
+        , chNoModules           :: Bool
+        , chNoTests             :: Bool
         }
 
 -- | Fucntion for getting checked input from command line
@@ -86,3 +89,5 @@ checkArgs Input {..} = do
             chInput
             chOutput
             (unDefValue . unHelpful $ repository_root)
+            (unHelpful no_modules)
+            (unHelpful no_tests)

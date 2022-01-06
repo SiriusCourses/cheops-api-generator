@@ -19,19 +19,21 @@ import GHC.Paths     (libdir)
 import GHC.SourceGen (HsModule', showPpr)
 
 import qualified CLI
-import           Data.TransportTypes.Parsing  (ParserResult (..), dashesToUnderscore,
-                                          postprocessParserResult, transformStrings)
-import           Data.TransportTypes.CodeGen (buildModules)
+import           Data.TransportTypes.CodeGen (buildModules, buildTests)
+import           Data.TransportTypes.Parsing (ParserResult (..), dashesToUnderscore,
+                                              postprocessParserResult, transformStrings)
 
-import           Conduit                                 (liftIO)
+import           Conduit                                      (liftIO)
+import           Data.Either                                  (fromRight, isLeft, isRight,
+                                                               lefts)
+import           Data.Maybe                                   (fromJust, isJust)
 import           Data.TransportTypes.ModuleParts              (ModuleParts (..))
-import           Data.TransportTypes.Parsing.IncludeInjection (RepositoryRoot (..), eventsFromFile)
+import           Data.TransportTypes.Parsing.IncludeInjection (RepositoryRoot (..),
+                                                               eventsFromFile)
 import qualified Data.TransportTypes.TypeRep                  as TR
-import           Data.Either                             (fromRight, isLeft, isRight, lefts)
-import           Data.Maybe                              (fromJust, isJust)
-import qualified System.ProgressBar                      as PB
-import           Text.Casing                             (camel)
-import           Util                                    (singleton)
+import qualified System.ProgressBar                           as PB
+import           Text.Casing                                  (camel)
+import           Util                                         (singleton)
 
 collectFiles :: FilePath -> IO [FilePath]
 collectFiles path = do
@@ -47,18 +49,17 @@ main = do
             CLI.Dir s  -> collectFiles s
     crr <- canonicalizePath chRoot
     content <-
-        do 
-            putStrLn "Parsing files:"
-            pb <- PB.newProgressBar PB.defStyle 10 (PB.Progress 0 (length files) ())
-            sequence <$>
-                traverse
-                    (\f -> do
-                            res <-
-                                decodeHelper @ParserResult . eventsFromFile (RepositoryRoot crr) $
-                                f
-                            liftIO $ PB.incProgress pb 1
-                            return res)
-                    files
+        do putStrLn "Parsing files:"
+           pb <- PB.newProgressBar PB.defStyle 10 (PB.Progress 0 (length files) ())
+           sequence <$>
+               traverse
+                   (\f -> do
+                        res <-
+                            decodeHelper @ParserResult . eventsFromFile (RepositoryRoot crr) $
+                            f
+                        liftIO $ PB.incProgress pb 1
+                        return res)
+                   files
     case content of
         Left pe -> print pe
         Right x0 -> do
@@ -84,18 +85,35 @@ main = do
             when chDebug $ traverse_ (print . fst) $ deps acc
             when chPrint_internal_repr $ putStrLn "-- accumulated parser results"
             when chPrint_internal_repr $ print acc
-            putStrLn "Building modules..."
-            b <- pure $ buildModules acc
-            putStrLn "Modules are built!"
-            when chPrint_internal_repr $ putStrLn "-- Built Modules:"
-            when chPrint_internal_repr $ print . Map.keys $ fromRight mempty b
-            case b of
-                Left s -> fail s
-                Right km -> do
-                    putStrLn "Saving files:"
-                    pb <- PB.newProgressBar PB.defStyle 10 (PB.Progress 0 (Map.size km) ())
-                    let load = Data.Bifunctor.first (chOutput </>) <$> Map.toList km
-                    saveModules (Just pb) load
+            when chNoModules $ putStrLn "option no-modules is enabled, so no modules are built"
+            unless chNoModules $ do
+                b <- putStrLn "Building modules..." >> pure (buildModules acc)
+                putStrLn "Modules are built!"
+                when chPrint_internal_repr $ putStrLn "-- Built Modules:"
+                when chPrint_internal_repr $ print . Map.keys $ fromRight mempty b
+                case b of
+                    Left s -> fail s
+                    Right km -> do
+                        putStrLn "Saving module files:"
+                        pb <- PB.newProgressBar PB.defStyle 10 (PB.Progress 0 (Map.size km) ())
+                        let load =
+                                Data.Bifunctor.first (\x -> chOutput </> "src" </> x) <$>
+                                Map.toList km
+                        saveModules (Just pb) load
+            -- building test files and saving them
+            when chNoTests $ putStrLn "option no-modules is enabled, so no tests are built"
+            unless chNoTests $ do
+                b' <- putStrLn "Building tests..." >> pure (buildTests acc)
+                putStrLn "Tests are built!"
+                case b' of
+                    Left s -> fail s
+                    Right km -> do
+                        putStrLn "Saving test files:"
+                        pb <- PB.newProgressBar PB.defStyle 10 (PB.Progress 0 (Map.size km) ())
+                        let load =
+                                Data.Bifunctor.first (\x -> chOutput </> "test" </> x) <$>
+                                Map.toList km
+                        saveModules (Just pb) load
   where
     combineParserResults :: ParserResult -> (FilePath, ParserResult) -> ParserResult
     combineParserResults (ParserResult mainType deps) (p, ParserResult mainType' deps') =
