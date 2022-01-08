@@ -9,7 +9,8 @@ module Data.TransportTypes.Parsing where
 import Control.Lens (makeLenses, (%~), (&), (.~), (<&>), (^.))
 
 import Data.Aeson.Types (prependFailure, typeMismatch)
-import Data.Yaml        (FromJSON (..), Object, Parser, ToJSON, Value (..), (.!=), (.:), (.:?))
+import Data.Yaml        (FromJSON (..), Object, Parser, ToJSON, Value (..), encode, (.!=),
+                         (.:), (.:?))
 
 import           Control.Applicative        ((<|>))
 import           Control.Monad.State.Strict (MonadTrans (lift), StateT (runStateT), get,
@@ -22,6 +23,8 @@ import qualified Data.Map                   as Map
 import           Data.Maybe                 (fromJust, fromMaybe)
 import qualified Data.Set                   as Set
 import           Data.String                (IsString (fromString))
+import           Data.Text                  (Text)
+import           Data.Text.Encoding         (decodeUtf8)
 import           GHC.Generics               (Generic)
 import           System.FilePath            (pathSeparator, takeBaseName, (</>))
 
@@ -62,6 +65,8 @@ type Origin = FilePath
 
 type Properties = Object
 
+type EncodedJSON = Text
+
 instance FromJSON ParserResult where
     parseJSON (Object obj) = makeParserResult <$> runStateT (parseDispatch obj) mempty
       where
@@ -75,6 +80,7 @@ instance FromJSON ParserResult where
 
 parseDispatch :: Object -> StatefulParser ModuleParts
 parseDispatch obj = do
+    let enc = decodeUtf8 . encode $ obj
     jsTypeTag <- lift failOrJsTypeTag
     maybeOrigin <- lift $ obj .:? "haskell/origin"
     typeInfo <- lift $ obj .:? "haskell/type-info"
@@ -86,8 +92,8 @@ parseDispatch obj = do
             JS.Prim tag ->
                 case (tag, m_enum) of
                     (JS.PrimStringTag, Just (enum :: [String])) ->
-                        return $ parseStringEnum enum title
-                    (tag', _) -> parsePrimitve tag' title typeInfo
+                        return $ parseStringEnum enc enum title
+                    (tag', _) -> parsePrimitve enc tag' title typeInfo
             JS.Rec tag -> parseRecordLike obj tag title
             JS.ArrayTag -> parseArray obj title
   where
@@ -109,8 +115,14 @@ parseDispatch obj = do
                     res <- k
                     modify $ cachedIncludes %~ Map.insert origin res
                 Just _ -> return ()
-            return . ModuleParts title mempty mempty . TR.Ref $
-                TR.RefExternalType origin (U.typeNameFromAbsolutePath origin title)
+            return $
+                ModuleParts
+                    title
+                    mempty
+                    mempty
+                    (TR.Ref $
+                     TR.RefExternalType origin (U.typeNameFromAbsolutePath origin title))
+                    mempty
 
 parseOneOf :: Object -> StatefulParser ModuleParts
 parseOneOf obj = do
@@ -118,53 +130,71 @@ parseOneOf obj = do
         Map.map (, True) . Map.fromList . zip (fmap (\n -> "Unnamed" ++ show n) [1 :: Int ..]) <$>
         (traverse parseDispatch =<< lift (obj .: "oneOf"))
     title <- lift $ obj .:? "title"
-    let ini = ModuleParts title mempty mempty $ TR.OneOf mempty
+    let ini = ModuleParts title mempty mempty (TR.OneOf mempty) (decodeUtf8 . encode $ obj)
     return $ Map.foldrWithKey MP.appendRecord ini options
 
 parseAnyOf :: Object -> StatefulParser ModuleParts
 parseAnyOf obj = do
     (options :: [ModuleParts]) <- traverse parseDispatch =<< lift (obj .: "anyOf")
     title <- lift $ obj .:? "title"
-    let ini = ModuleParts title mempty mempty $ TR.AnyOfType mempty
+    let ini = ModuleParts title mempty mempty (TR.AnyOfType mempty) (decodeUtf8 . encode $ obj)
     return $ foldr MP.appendAofPart ini $ zip [1 ..] options
 
 parseAllOf :: Object -> StatefulParser ModuleParts
 parseAllOf obj = do
     (options :: [ModuleParts]) <- traverse parseDispatch =<< lift (obj .: "allOf")
     title <- lift $ obj .:? "title"
-    let ini = ModuleParts title mempty mempty $ TR.AllOfType mempty
+    let ini = ModuleParts title mempty mempty (TR.AllOfType mempty) (decodeUtf8 . encode $ obj)
     return $ foldr MP.appendAofPart ini $ zip [1 ..] options
 
 parseArray :: Object -> Maybe U.Title -> StatefulParser ModuleParts
 parseArray obj maybeTitle = do
     let itemField :: String = "items"
     itemsModule <- parseDispatch =<< lift (obj .: fromString itemField)
+    let enc = decodeUtf8 . encode $ obj
     case itemsModule ^. declaration of
         (TR.Ref (TR.RefExternalType s tn)) ->
             return $
-            ModuleParts maybeTitle (Set.singleton s) mempty $
-            TR.ArrayType (TR.ReferenceToExternalType s tn)
+            ModuleParts
+                maybeTitle
+                (Set.singleton s)
+                mempty
+                (TR.ArrayType (TR.ReferenceToExternalType s tn))
+                enc
         (TR.Ref (TR.RefPrimitiveType s)) ->
             return $
-            ModuleParts maybeTitle mempty mempty $ TR.ArrayType (TR.ReferenceToPrimitiveType s)
+            ModuleParts
+                maybeTitle
+                mempty
+                mempty
+                (TR.ArrayType (TR.ReferenceToPrimitiveType s))
+                enc
         _local ->
             let tn = U.chooseName itemField (itemsModule ^. jsTitle)
              in return $
-                ModuleParts maybeTitle mempty (Map.singleton itemField itemsModule) $
-                TR.ArrayType (TR.ReferenceToLocalType itemField tn)
+                ModuleParts
+                    maybeTitle
+                    mempty
+                    (Map.singleton itemField itemsModule)
+                    (TR.ArrayType (TR.ReferenceToLocalType itemField tn))
+                    enc
 
-parseStringEnum :: [String] -> Maybe U.Title -> ModuleParts
-parseStringEnum enum title = ModuleParts title mempty mempty typeRep
+parseStringEnum :: Text -> [String] -> Maybe U.Title -> ModuleParts
+parseStringEnum enc enum title = ModuleParts title mempty mempty typeRep enc
   where
     typeRep = TR.SumType . Map.fromList $ (, TR.SumConstr []) <$> enum
 
-parsePrimitve :: JS.PrimitiveTag -> Maybe U.Title -> Maybe TypeInfo -> StatefulParser ModuleParts
-parsePrimitve typeTag maybeTitle tInfo = do
-    let newtypeWrapper =
-            case maybeTitle of
-                Just _  -> TR.NewType . TR.ExtRef
-                Nothing -> TR.Ref
-    return . ModuleParts maybeTitle mempty mempty . newtypeWrapper . TR.RefPrimitiveType $
+parsePrimitve ::
+       Text -> JS.PrimitiveTag -> Maybe U.Title -> Maybe TypeInfo -> StatefulParser ModuleParts
+parsePrimitve enc typeTag maybeTitle tInfo = do
+    return $ ModuleParts maybeTitle mempty mempty rep enc
+  where
+    newtypeWrapper =
+        case maybeTitle of
+            Just _  -> TR.NewType . TR.ExtRef
+            Nothing -> TR.Ref
+    rep =
+        newtypeWrapper . TR.RefPrimitiveType $
         case typeTag of
             JS.PrimStringTag -> fromMaybe "Data.Text.Text" tInfo
             JS.PrimIntTag    -> fromMaybe "Int" tInfo
@@ -190,7 +220,7 @@ parseRecordLike obj typeTag title = do
     return $
         Map.foldrWithKey
             MP.appendRecord
-            (ModuleParts title mempty mempty initialTypeRep)
+            (ModuleParts title mempty mempty initialTypeRep (decodeUtf8 . encode $ obj))
             parsedProperties
   where
     checkRequired ::
@@ -258,12 +288,13 @@ transformStrings transform (ParserResult mp deps) =
     ParserResult (go mp) $ Data.Bifunctor.bimap transform go <$> deps
   where
     go :: ModuleParts -> ModuleParts
-    go (ModuleParts m_s set km tr) = ModuleParts {..}
+    go (ModuleParts m_s set km tr js) = ModuleParts {..}
       where
         _jsTitle = transform <$> m_s
         _localDeps = Map.mapKeys transform . Map.map go $ km
         _externalDeps = Set.map transform set
         _declaration = transformTypeRep tr
+        _json = js
     transformTypeRep :: TR.TypeRep -> TR.TypeRep
     transformTypeRep (TR.ProdType km) =
         TR.ProdType $ Map.mapKeys transform . Map.map transformField $ km

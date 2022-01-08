@@ -37,7 +37,7 @@ buildUp ::
        (Payload -> U.ModulePrefix -> HsModule')
     -> Algebra (NodeF Payload) (Ctx (Map FilePath HsModule'))
 buildUp k node = do
-    let p@(Payload _ externalDeps' _) = getPayload node
+    let p@(Payload _ externalDeps' _ _) = getPayload node
     localDeps <-
         case node of
             Local _ km ->

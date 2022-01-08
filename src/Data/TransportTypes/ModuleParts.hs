@@ -8,6 +8,7 @@ module Data.TransportTypes.ModuleParts where
 import           Control.Lens (makeLenses, (^.))
 import           Data.Set     (Set)
 import qualified Data.Set     as Set
+import           Data.Text    (Text)
 import           GHC.Generics (Generic)
 
 import Data.Yaml (ToJSON)
@@ -16,7 +17,7 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
-import qualified Data.TransportTypes.TypeRep        as TR
+import qualified Data.TransportTypes.TypeRep             as TR
 
 data ModuleParts =
     ModuleParts
@@ -24,6 +25,7 @@ data ModuleParts =
         , _externalDeps :: Set FilePath
         , _localDeps    :: Map TR.ModuleName ModuleParts
         , _declaration  :: TR.TypeRep
+        , _json         :: Text
         }
     deriving (Show, Eq, Generic)
     deriving anyclass (ToJSON)
@@ -35,15 +37,29 @@ appendAofPart (i, new) ModuleParts {..} =
     let fieldName = U.unnamed ++ show i
      in case new ^. declaration of
             TR.Ref (TR.RefPrimitiveType s) ->
-                ModuleParts _jsTitle _externalDeps _localDeps $
-                appendToTypeRep _declaration (TR.ReferenceToPrimitiveType s)
+                ModuleParts
+                    _jsTitle
+                    _externalDeps
+                    _localDeps
+                    (appendToTypeRep _declaration (TR.ReferenceToPrimitiveType s))
+                    _json
             TR.Ref (TR.RefExternalType extName tn) ->
-                ModuleParts _jsTitle (Set.insert extName _externalDeps) _localDeps $
-                appendToTypeRep _declaration (TR.ReferenceToExternalType extName tn)
+                ModuleParts
+                    _jsTitle
+                    (Set.insert extName _externalDeps)
+                    _localDeps
+                    (appendToTypeRep _declaration (TR.ReferenceToExternalType extName tn))
+                    _json
             _local ->
                 let typename = U.chooseName fieldName (new ^. jsTitle)
-                 in ModuleParts _jsTitle _externalDeps (Map.insert fieldName new _localDeps) $
-                    appendToTypeRep _declaration (TR.ReferenceToLocalType fieldName typename)
+                 in ModuleParts
+                        _jsTitle
+                        _externalDeps
+                        (Map.insert fieldName new _localDeps)
+                        (appendToTypeRep
+                             _declaration
+                             (TR.ReferenceToLocalType fieldName typename))
+                        _json
   where
     appendToTypeRep :: TR.TypeRep -> TR.TypeRef -> TR.TypeRep
     appendToTypeRep (TR.AllOfType set) tr = TR.AllOfType $ Set.insert tr set
@@ -54,20 +70,32 @@ appendRecord :: TR.FieldName -> (ModuleParts, Bool) -> ModuleParts -> ModulePart
 appendRecord fieldName (record, req) ModuleParts {..} =
     case record ^. declaration of
         TR.Ref (TR.RefPrimitiveType s) ->
-            ModuleParts _jsTitle _externalDeps _localDeps $
-            appendToTypeRep _declaration fieldName $
-            TR.Field req (TR.ReferenceToPrimitiveType s)
+            ModuleParts
+                _jsTitle
+                _externalDeps
+                _localDeps
+                (appendToTypeRep _declaration fieldName $
+                 TR.Field req (TR.ReferenceToPrimitiveType s))
+                _json
         TR.Ref (TR.RefExternalType extName tn) ->
-            ModuleParts _jsTitle (Set.insert extName _externalDeps) _localDeps $
-            appendToTypeRep _declaration fieldName $
-            TR.Field req (TR.ReferenceToExternalType extName tn)
+            ModuleParts
+                _jsTitle
+                (Set.insert extName _externalDeps)
+                _localDeps
+                (appendToTypeRep _declaration fieldName $
+                 TR.Field req (TR.ReferenceToExternalType extName tn))
+                _json
         _local ->
             let typename = U.chooseName fieldName (record ^. jsTitle)
-             in ModuleParts _jsTitle _externalDeps (Map.insert fieldName record _localDeps) $
-                appendToTypeRep
-                    _declaration
-                    fieldName
-                    (TR.Field req $ TR.ReferenceToLocalType fieldName typename)
+             in ModuleParts
+                    _jsTitle
+                    _externalDeps
+                    (Map.insert fieldName record _localDeps)
+                    (appendToTypeRep
+                         _declaration
+                         fieldName
+                         (TR.Field req $ TR.ReferenceToLocalType fieldName typename))
+                    _json
   where
     appendToTypeRep :: TR.TypeRep -> TR.FieldName -> TR.Field -> TR.TypeRep
     appendToTypeRep (TR.ProdType km) k tr = TR.ProdType $ Map.insert k tr km

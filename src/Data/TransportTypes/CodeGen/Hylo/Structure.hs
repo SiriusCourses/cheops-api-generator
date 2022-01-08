@@ -3,6 +3,7 @@ module Data.TransportTypes.CodeGen.Hylo.Structure where
 import Data.Map.Strict (Map)
 import Data.Set        (Set)
 
+import           Data.Text                               (Text)
 import           Data.TransportTypes.CodeGen.NamingUtils (ModuleName)
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import           Data.TransportTypes.TypeRep             (TypeRep)
@@ -20,6 +21,7 @@ data Payload =
         { title        :: Maybe U.Title
         , externalDeps :: Set FilePath
         , typeRep      :: TypeRep
+        , json         :: Text
         }
 
 instance Functor (NodeF a) where

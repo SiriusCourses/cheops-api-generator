@@ -9,6 +9,7 @@ import Control.Monad ((<=<))
 import Data.Foldable (toList)
 
 import           Data.Bifunctor  (bimap)
+import           Data.Foldable   (foldl')
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe      (catMaybes, mapMaybe)
@@ -16,11 +17,9 @@ import           Data.Set        (Set)
 import qualified Data.Set        as Set
 import           Data.String     (fromString)
 
-import GHC.SourceGen (App ((@@)), ConDecl', Field, HsDecl', HsModule', HsType', ImportDecl',
-                      Var (var), data', deriving', derivingNewtype, derivingStock, field,
-                      funBind, import', instance', match, module', newtype', prefixCon,
-                      qualified', recordCon, strict, string, typeSig)
+import GHC.SourceGen
 
+import qualified Data.Text                               as T
 import           Data.TransportTypes.CodeGen.Hylo        (Payload (..), build)
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import           Data.TransportTypes.Parsing             (ParserResult (..))
@@ -143,7 +142,11 @@ buildModule Payload {..} prefix =
         internalType = field . var . fromString $ U.referenceToQualTypeName prefix tr'
         getter = fromString $ U.getterName typename
     buildTypeDecl (TR.Ref nlr) =
-        newtype' (fromString typename) [] (prefixCon (fromString typename) [field symtype]) U.defaultDerivingClause
+        newtype'
+            (fromString typename)
+            []
+            (prefixCon (fromString typename) [field symtype])
+            U.defaultDerivingClause
       where
         symtype = var . fromString $ U.nonLocalReferenceToQualTypeName nlr
 
@@ -157,15 +160,38 @@ buildTests pr = do
   where
     buildSpec :: [FilePath] -> HsModule'
     buildSpec paths =
-        let imports =
-                qualified' . import' . fromString . U.prefixToModuleName . U.pathToPrefix <$>
-                paths
-         in module' Nothing Nothing imports [mainSig, mainBdy]
+        module'
+            Nothing
+            Nothing
+            (qualified' . import' . fromString <$>
+             imports <> ["Test.QuickCheck", "System.Process", "System.Time.Extra"])
+            [mainSig, mainDef]
       where
-        mainSig = typeSig main (var "IO" @@ var "()")
-        mainBdy = funBind main $ match [] (var "putStrLn" @@ string "Not yet implemented")
+        imports = U.prefixToModuleName . U.pathToPrefix <$> paths
         main = "main"
-        -- testcalls =
+        mainSig = typeSig main (var "IO" @@ var "()")
+        mainDef = funBind main $ match [] mainBdy
+          where
+            testName = "prop_encdecInv"
+            mainBdy =
+                do' $
+                [ bvar (fromString handleName) <-- startTestServer
+                , stmt $ var "System.Time.Extra.sleep" @@ int 1
+                ] ++
+                (testCalls) ++ [stopTestServer]
+              where
+                handleName = "handle"
+                startTestServer =
+                    var "System.Process.spawnProcess" @@ string "sh" @@
+                    (var "pure" @@ string "python/JsonTest/run.sh")
+                stopTestServer =
+                    stmt $ var "System.Process.terminateProcess" @@ var (fromString handleName)
+                testCalls =
+                    (\t ->
+                         stmt $
+                         var "Test.QuickCheck.quickCheck" @@
+                         var (fromString $ t ++ "." ++ testName)) <$>
+                    imports
 
 buildTest :: Payload -> U.ModulePrefix -> HsModule'
 buildTest Payload {..} prefix =
@@ -180,9 +206,18 @@ buildTest Payload {..} prefix =
             [ tgtModuleName
             , "Test.QuickCheck"
             , "Test.QuickCheck.Instances"
+            , "Test.QuickCheck.Monadic"
             , "Generic.Random"
             , "GHC.Generics"
             , "Data.Yaml"
+            , "Data.Aeson"
+            , "System.IO"
+            , "System.Directory"
+            , "Data.Maybe"
+            , "Data.ByteString.UTF8"
+            , "Data.Text"
+            , "Data.ByteString"
+            , "Data.ByteString.Lazy"
             ] <>
             extImports <> locals
         exports = Nothing
@@ -190,17 +225,96 @@ buildTest Payload {..} prefix =
             (Just . fromString $ testModuleName)
             exports
             imports
-            [arbitraryInstanceDecl, test]
+            [arbitraryInstanceDecl, testSig, test, rawSchemeLitSig, rawSchemeLit]
   where
     qualTypename :: TR.TypeName
     qualTypename = U.prefixToQualTypeName prefix title
-      where
-
     arbitraryInstanceDecl =
         instance'
             (var "Test.QuickCheck.Arbitrary" @@ (var . fromString $ qualTypename))
             [funBind "arbitrary" $ match [] (var "Generic.Random.genericArbitraryU")]
-    -- testSig = _
-    test = funBind "prop_encdecInv" $ match [] testBdy
+    propName = "prop_encdecInv"
+    testSig =
+        typeSig propName $ var (fromString qualTypename) --> var "Test.QuickCheck.Property"
+    sampleName = "sample"
+    test = funBind propName $ match [bvar (fromString sampleName)] testBdy
       where
-        testBdy = var "undefined"
+        testBdy =
+            jsonBinding $
+            var "Test.QuickCheck.Monadic.monadicIO" @@
+            do'
+                [ writeJsonsToFIFO
+                , bvar (fromString resName) <-- readAnswerFromFIFO
+                , assertTrue
+                ]
+          where
+            resName = "res"
+            -- testSampling =
+            --     bvar (fromString sampleName) <-- var "Test.QuickCheck.Monadic.pick" @@
+            --     (var "Test.QuickCheck.arbitrary" `tyApp` var (fromString qualTypename))
+            jsonBinding =
+                let converting x =
+                        var "Data.ByteString.Lazy.toStrict" @@
+                        (var "Data.Aeson.encode" @@
+                         (var "Data.Maybe.fromJust" @@
+                          ((var "Data.Yaml.decode" `tyApp` var "Data.Yaml.Object") @@ x)))
+                 in let'
+                        [ valBind "jsonScheme" $ converting (var "rawScheme")
+                        , funBind "jsonObject" $
+                          match [bvar "x"] $ converting (var "Data.Yaml.encode" @@ var "x")
+                        ]
+            writeJsonsToFIFO =
+                let mod' = var "System.IO.WriteMode"
+                    file = string "test_input.fifo"
+                 in stmt $
+                    var "Test.QuickCheck.Monadic.run" @@
+                    (var "System.IO.withFile" @@ file @@ mod' @@ writing)
+              where
+                writing =
+                    lambda [bvar "handle"] $
+                    do'
+                        [ stmt $
+                          var "Data.ByteString.hPut" @@ var "handle" @@
+                          (var "jsonObject" @@ var (fromString sampleName))
+                        , stmt $ var "System.IO.hPutStrLn" @@ var "handle" @@ string ""
+                        , stmt $ var "Data.ByteString.hPut" @@ var "handle" @@ var "jsonScheme"
+                        ]
+            readAnswerFromFIFO =
+                let mod' = var "System.IO.ReadMode"
+                    file = string "test_output.fifo"
+                 in var "Test.QuickCheck.Monadic.run" @@
+                    (var "System.IO.withFile" @@ file @@ mod' @@ reading)
+              where
+                reading = var "System.IO.hGetLine"
+            assertTrue =
+                stmt $
+                var "Test.QuickCheck.Monadic.assert" @@
+                (var "read" @@ (var (fromString resName)))
+    rawSchemeLitName = "rawScheme"
+    rawSchemeLitSig = typeSig rawSchemeLitName $ var "Data.ByteString.ByteString"
+    rawSchemeLit =
+        funBind rawSchemeLitName $
+        match [] (var "Data.ByteString.UTF8.fromString" @@ string (T.unpack json))
+    -- retTH = var "return" @@ var "[]"
+    -- testcallsTH = funBind "runTests" $ match [] (var "$Test.QuickCheck.quickCheckAll")
+{-prop_encdecInv :: Test.QuickCheck.Monadic.Property
+  prop_encdecInv =
+      Test.QuickCheck.Monadic.monadicIO $ do
+          sample <- Test.QuickCheck.Monadic.pick (Test.QuickCheck.arbitrary @Cheops.Transport.Bug.V0.Api.Api)
+          let jsonScheme =
+                  Data.Aeson.encode . fromJust . (Data.Yaml.decode @Data.Yaml.Object) $ rawScheme
+          let jsonObject =
+                  Data.Aeson.encode . fromJust . (Data.Yaml.decode @Data.Yaml.Object) $
+                  Data.Yaml.encode sample
+          Test.QuickCheck.Monadic.run .
+              System.IO.withFile System.IO.WriteMod "python/JsonTest/test_input.fifo" $ do
+              System.IO.hPutStrLn jsonObject
+              System.IO.hPutStrLn jsonScheme
+          [res] <-
+              Test.QuickCheck.Monadic.run .
+              System.IO.withFile
+                  System.IO.ReadMod
+                  "python/JsonTest/test_ouput.fifo"
+                  System.IO.hGetLine
+          Test.QuickCheck.Monadic.assert $ read res
+-}

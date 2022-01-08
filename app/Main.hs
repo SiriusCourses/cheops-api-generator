@@ -76,7 +76,8 @@ main = do
                              (Just "dummy")
                              mempty
                              mempty
-                             (TR.Ref . TR.RefPrimitiveType $ "Int"))
+                             (TR.Ref . TR.RefPrimitiveType $ "Int")
+                             mempty)
                         mempty
             let acc =
                     transformStrings (camel . dashesToUnderscore) . postprocessParserResult $
