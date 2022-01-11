@@ -34,6 +34,9 @@ ghc-options:
 packages:
 - .
 
+extra-lib-dirs:
+  - cbits/c_validate/cmake-build-debug
+
 # allow-newer: true
 # Dependency packages to be pulled from upstream that are not in the resolver.
 # These entries can reference officially published versions as well as

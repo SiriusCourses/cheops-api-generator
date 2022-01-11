@@ -91,6 +91,8 @@ library:
   - src
   # - generated
   # - generated-api/src
+  extra-libraries: 
+  - c_validate
 
 executables:
   config-generation-exe:
