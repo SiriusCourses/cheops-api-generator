@@ -17,7 +17,7 @@ import           Control.Monad.State.Strict (MonadTrans (lift), StateT (runState
                                              modify)
 import qualified Data.Bifunctor
 import           Data.List                  (intersperse, stripPrefix, (\\))
-import           Data.List.Utils            (split)
+import           Data.List.Split            (splitOn)
 import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 import           Data.Maybe                 (fromJust, fromMaybe)
@@ -247,9 +247,9 @@ postprocessParserResult (ParserResult mp incs) =
             [] -> Just $ addPrefix . takeBaseName $ y
             [_] -> Just $ addPrefix . takeBaseName $ y
             _ ->
-                let lcp = LCP.commonPrefix $ split [pathSeparator] . fst <$> incs
+                let lcp = LCP.commonPrefix $ splitOn [pathSeparator] . fst <$> incs
                  in addPrefix . mconcat . intersperse [pathSeparator] <$>
-                    stripPrefix lcp (split [pathSeparator] y)
+                    stripPrefix lcp (splitOn [pathSeparator] y)
       where
         addPrefix :: FilePath -> FilePath
         addPrefix p = U.globalPrefix </> p

@@ -60,9 +60,10 @@ dependencies:
 - optparse-generic
 - unix
 - filemanip
-- MissingH
+# - MissingH
 - casing
 - scientific
+- split
 - terminal-progress-bar
 - QuickCheck
 - generic-random

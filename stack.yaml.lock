@@ -53,6 +53,13 @@ packages:
       sha256: adde5ecc080faa094750544837937cf876e65bf5bf28d81db22e7401faa46bf3
   original:
     hackage: hashable-1.3.5.0
+- completed:
+    hackage: filemanip-0.3.6.3@sha256:7b5f8aa0626724fbd77721f4d01241b1e7f390dd6a4086bddba77c0cea25fcd7,1223
+    pantry-tree:
+      size: 474
+      sha256: 36edb782f6c69ecfde50ec2baf9fc2fac9ba1e22c814bd5c8d6527fd98976327
+  original:
+    hackage: filemanip-0.3.6.3
 snapshots:
 - completed:
     size: 586292
