@@ -28,6 +28,7 @@ import           Data.Text.Encoding         (decodeUtf8)
 import           GHC.Generics               (Generic)
 import           System.FilePath            (pathSeparator, takeBaseName, (</>))
 
+import qualified Data.Text                               as T
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import qualified Data.TransportTypes.JSTypes             as JS
 import           Data.TransportTypes.ModuleParts         (ModuleParts (..))
@@ -87,7 +88,7 @@ parseDispatch obj = do
     title <- lift $ obj .:? "title"
     m_enum <- lift $ obj .:? "enum"
     retrieveCachedInclude title maybeOrigin $
-        parseOneOf obj <|> parseAnyOf obj <|> parseAllOf obj <|>
+        parseOneOf obj <|> parseAnyOf obj <|> parseAllOf obj <|> parseConst obj <|>
         case jsTypeTag of
             JS.Prim tag ->
                 case (tag, m_enum) of
@@ -124,10 +125,28 @@ parseDispatch obj = do
                      TR.RefExternalType origin (U.typeNameFromAbsolutePath origin title))
                     mempty
 
+parseConst :: Object -> StatefulParser ModuleParts
+parseConst obj = do
+    (cnst :: Value) <- lift (obj .: "const")
+    title <- lift $ obj .:? "title"
+    return $
+        ModuleParts
+            (decideCnstTitle title cnst)
+            mempty
+            mempty
+            (TR.Const cnst)
+            (decodeUtf8 . encode $ obj)
+  where
+    decideCnstTitle :: Maybe U.Title -> Value -> Maybe U.Title
+    decideCnstTitle title cnst =
+        case (cnst, title) of
+            (String txt, Nothing) -> Just $ T.unpack txt
+            _other                -> title
+
 parseOneOf :: Object -> StatefulParser ModuleParts
 parseOneOf obj = do
     (options :: Map String (ModuleParts, Bool)) <-
-        Map.map (, True) . Map.fromList . zip (fmap (\n -> "Unnamed" ++ show n) [1 :: Int ..]) <$>
+        Map.map (, True) . Map.fromList . zip (fmap (\n -> "Option" ++ show n) [1 :: Int ..]) <$>
         (traverse parseDispatch =<< lift (obj .: "oneOf"))
     title <- lift $ obj .:? "title"
     let ini = ModuleParts title mempty mempty (TR.OneOf mempty) (decodeUtf8 . encode $ obj)
@@ -309,6 +328,7 @@ transformStrings transform (ParserResult mp deps) =
     transformTypeRep (TR.Ref (TR.RefPrimitiveType nm)) = TR.Ref . TR.RefPrimitiveType $ nm
     transformTypeRep (TR.AnyOfType set) = TR.AnyOfType $ Set.map transfromTypeRef set
     transformTypeRep (TR.AllOfType set) = TR.AllOfType $ Set.map transfromTypeRef set
+    transformTypeRep (TR.Const v) = TR.Const v
     transfromTypeRef :: TR.TypeRef -> TR.TypeRef
     transfromTypeRef (TR.ReferenceToLocalType s tn) =
         TR.ReferenceToLocalType (transform s) (transform tn)

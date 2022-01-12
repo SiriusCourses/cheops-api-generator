@@ -18,7 +18,7 @@ module Data.TransportTypes.TypeRep
 
 import GHC.Generics (Generic)
 
-import Data.Yaml (ToJSON)
+import Data.Yaml (ToJSON, Value)
 
 import Data.Map (Map)
 import Data.Set (Set)
@@ -70,6 +70,7 @@ data TypeRep
     | ArrayType TypeRef
     | NewType TypeRef
     | Ref NonLocalRef
+    | Const Value
     deriving (Show, Eq, Generic, Ord)
     deriving anyclass (ToJSON)
 

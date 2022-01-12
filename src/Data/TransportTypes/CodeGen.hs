@@ -15,14 +15,15 @@ import           Data.Maybe      (catMaybes, mapMaybe)
 import           Data.Set        (Set)
 import qualified Data.Set        as Set
 import           Data.String     (fromString)
+import qualified Data.Text       as T
 
 import GHC.SourceGen
 
-import qualified Data.Text                               as T
 import           Data.TransportTypes.CodeGen.Hylo        (Payload (..), build)
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import           Data.TransportTypes.Parsing             (ParserResult (..))
 import qualified Data.TransportTypes.TypeRep             as TR
+import           Data.Yaml                               (Value (String))
 
 gatherLocalImports :: U.ModulePrefix -> TR.TypeRep -> [TR.ModuleName]
 gatherLocalImports prefix tr
@@ -37,7 +38,7 @@ gatherLocalImports prefix tr
     | (TR.OneOf map') <- tr = gatherSum map'
   where
     gatherSum :: Map U.FieldName TR.SumConstr -> [TR.ModuleName]
-    gatherSum = (catMaybes . snd) <=< Map.toList . fmap TR.unSumConstr . Map.map (fmap go)
+    gatherSum = catMaybes . snd <=< Map.toList . fmap TR.unSumConstr . Map.map (fmap go)
       where
         go :: TR.Field -> Maybe TR.ModuleName
         go (TR.Field _ tr') = U.referenceToModuleName prefix tr'
@@ -49,6 +50,7 @@ gatherLocalImports prefix tr
 gatherLocalImports prefix (TR.ArrayType tr') = toList $ U.referenceToModuleName prefix tr'
 gatherLocalImports prefix (TR.NewType tr') = toList $ U.referenceToModuleName prefix tr'
 gatherLocalImports _prefix (TR.Ref nlr) = toList $ U.nonLocalReferenceToModuleName nlr
+gatherLocalImports _ _ = mempty
 
 buildModule :: Payload -> U.ModulePrefix -> HsModule'
 buildModule Payload {..} prefix =
@@ -148,6 +150,19 @@ buildModule Payload {..} prefix =
             U.defaultDerivingClause
       where
         symtype = var . fromString $ U.nonLocalReferenceToQualTypeName nlr
+    buildTypeDecl (TR.Const v) =
+        data'
+            (fromString typename)
+            []
+            [prefixCon (fromString cntrName) []]
+            U.defaultDerivingClause
+      where
+        cntrName =
+            case v of
+                String txt -> U.fieldNameToSumCon $ T.unpack txt
+                _other     -> typename
+    buildJSONInstances :: TR.TypeRep -> HsDecl'
+    buildJSONInstances tr = undefined -- instance' _ _
 
 buildModules :: ParserResult -> Either String (Map FilePath HsModule')
 buildModules = build buildModule
@@ -172,8 +187,7 @@ buildTests pr = do
         mainDef = funBind main $ match [] mainBdy
           where
             testName = "prop_encdecInv"
-            mainBdy =
-                do' $ take 10 testCalls
+            mainBdy = do' $ take 10 testCalls
               where
                 testCalls =
                     (\t ->
@@ -208,6 +222,7 @@ buildTest Payload {..} prefix =
             , "Data.ByteString"
             , "Data.ByteString.Lazy"
             , "Data.TransportTypes.FFI"
+            , "Control.Exception"
             ] <>
             extImports <> locals
         exports = Nothing
@@ -241,12 +256,12 @@ buildTest Payload {..} prefix =
                   var "Test.QuickCheck.Monadic.run" @@
                   (var "putStrLn" @@ (var "show" @@ var (fromString sampleName)))
                 , bvar "recScheme" <-- var "Test.QuickCheck.Monadic.run" @@
-                  (decodeEncode "scheme" (var "rawScheme"))
+                  decodeEncode "scheme" (var "rawScheme")
                 , bvar "recSample" <-- var "Test.QuickCheck.Monadic.run" @@
-                  (decodeEncode "object" (var "Data.Yaml.encode" @@ var (fromString sampleName)))
-                , bvar (fromString resName) <-- var "Test.QuickCheck.Monadic.run" @@ (var "Data.TransportTypes.FFI.validateJSON" @@
-                  var "recSample" @@
-                  var "recScheme")
+                  decodeEncode "object" (var "Data.Yaml.encode" @@ var (fromString sampleName))
+                , bvar (fromString resName) <-- var "Test.QuickCheck.Monadic.run" @@
+                  (var "Data.TransportTypes.FFI.validateJSON" @@ var "recSample" @@
+                   var "recScheme")
                 , stmt $
                   var "Test.QuickCheck.Monadic.run" @@ (var "putStrLn" @@ string "result:")
                 , stmt $
@@ -261,11 +276,13 @@ buildTest Payload {..} prefix =
                     case'
                     [ match [conP "Left" [bvar "x"]] $
                       do'
-                          [ stmt $ var "putStrLn" @@ string ("exception from yaml decoder (" ++ msg ++ ") :")
+                          [ stmt $
+                            var "putStrLn" @@
+                            string ("exception from yaml decoder (" ++ msg ++ ") :")
                           , stmt $ var "print" @@ var "x"
-                          , stmt $ var "putStrLn" @@ string ("on encoding:")
+                          , stmt $ var "putStrLn" @@ string "on encoding:"
                           , stmt $ var "print" @@ x
-                          , stmt $ var "return" @@ string "{type: null}"
+                          , stmt $ var "Control.Exception.throw" @@ var "x"
                           ]
                     , match [conP "Right" [bvar "x"]] $ var "return" @@ var "x"
                     ] $
@@ -275,7 +292,7 @@ buildTest Payload {..} prefix =
                       var "return" @@
                       (var "Data.ByteString.Lazy.toStrict" @@
                        (var "Data.Aeson.encode" @@
-                        (var (fromString decodedName) @::@ var "Data.Yaml.Object")))
+                        (var (fromString decodedName) @::@ var "Data.Yaml.Value")))
                     ]
               where
                 decodedName = "decoded"
