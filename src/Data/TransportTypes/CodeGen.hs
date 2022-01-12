@@ -173,18 +173,8 @@ buildTests pr = do
           where
             testName = "prop_encdecInv"
             mainBdy =
-                do' $
-                -- [ bvar (fromString handleName) <-- startTestServer,
-                -- stmt $ var "System.Time.Extra.sleep" @@ int 1
-                -- ] ++
-                (take 10 testCalls) -- ++ [stopTestServer]
+                do' $ take 10 testCalls
               where
-                handleName = "handle"
-                -- startTestServer =
-                --     var "System.Process.spawnProcess" @@ string "sh" @@
-                --     (var "pure" @@ string "python/JsonTest/run.sh")
-                -- stopTestServer =
-                --     stmt $ var "System.Process.terminateProcess" @@ var (fromString handleName)
                 testCalls =
                     (\t ->
                          stmt $
@@ -217,6 +207,7 @@ buildTest Payload {..} prefix =
             , "Data.Text"
             , "Data.ByteString"
             , "Data.ByteString.Lazy"
+            , "Data.TransportTypes.FFI"
             ] <>
             extImports <> locals
         exports = Nothing
@@ -248,29 +239,33 @@ buildTest Payload {..} prefix =
                   var "Test.QuickCheck.Monadic.run" @@ (var "putStrLn" @@ string "sample:")
                 , stmt $
                   var "Test.QuickCheck.Monadic.run" @@
-                  ((var "putStrLn") @@ (var "show" @@ var (fromString sampleName)))
+                  (var "putStrLn" @@ (var "show" @@ var (fromString sampleName)))
                 , bvar "recScheme" <-- var "Test.QuickCheck.Monadic.run" @@
-                  (decodeEncode (var "rawScheme"))
+                  (decodeEncode "scheme" (var "rawScheme"))
                 , bvar "recSample" <-- var "Test.QuickCheck.Monadic.run" @@
-                  (decodeEncode (var "Data.Yaml.encode" @@ var (fromString sampleName)))
-                , writeJsonsToFIFO "recSample" "recScheme"
-                , bvar (fromString resName) <-- readAnswerFromFIFO
+                  (decodeEncode "object" (var "Data.Yaml.encode" @@ var (fromString sampleName)))
+                , bvar (fromString resName) <-- var "Test.QuickCheck.Monadic.run" @@ (var "Data.TransportTypes.FFI.validateJSON" @@
+                  var "recSample" @@
+                  var "recScheme")
                 , stmt $
                   var "Test.QuickCheck.Monadic.run" @@ (var "putStrLn" @@ string "result:")
                 , stmt $
                   var "Test.QuickCheck.Monadic.run" @@
-                  (var "putStrLn" @@ var (fromString resName))
+                  (var "putStrLn" @@ (var "show" @@ var (fromString resName)))
                 , assertTrue
                 ]
           where
             resName = "res"
-            decodeEncode x =
-                (flip case')
+            decodeEncode msg x =
+                flip
+                    case'
                     [ match [conP "Left" [bvar "x"]] $
                       do'
-                          [ stmt $ var "putStrLn" @@ string "exception from yaml decoder:"
+                          [ stmt $ var "putStrLn" @@ string ("exception from yaml decoder (" ++ msg ++ ") :")
                           , stmt $ var "print" @@ var "x"
-                          , stmt $ var "return" @@ string "{}"
+                          , stmt $ var "putStrLn" @@ string ("on encoding:")
+                          , stmt $ var "print" @@ x
+                          , stmt $ var "return" @@ string "{type: null}"
                           ]
                     , match [conP "Right" [bvar "x"]] $ var "return" @@ var "x"
                     ] $
@@ -280,40 +275,12 @@ buildTest Payload {..} prefix =
                       var "return" @@
                       (var "Data.ByteString.Lazy.toStrict" @@
                        (var "Data.Aeson.encode" @@
-                        (var (fromString decodedName) @::@ (var "Data.Yaml.Object"))))
+                        (var (fromString decodedName) @::@ var "Data.Yaml.Object")))
                     ]
               where
                 decodedName = "decoded"
-            writeJsonsToFIFO sample' scheme' =
-                let mod' = var "System.IO.WriteMode"
-                    file = string "test_input.fifo"
-                 in stmt $
-                    var "Test.QuickCheck.Monadic.run" @@
-                    (var "System.IO.withFile" @@ file @@ mod' @@ writing)
-              where
-                writing =
-                    lambda [bvar "handle"] $
-                    do'
-                        [ stmt $
-                          var "Data.ByteString.hPut" @@ var "handle" @@
-                          var (fromString sample')
-                        , stmt $ var "System.IO.hPutStrLn" @@ var "handle" @@ string ""
-                        , stmt $
-                          var "Data.ByteString.hPut" @@ var "handle" @@
-                          var (fromString scheme')
-                        , stmt $ var "System.IO.hPutStrLn" @@ var "handle" @@ string ""
-                        ]
-            readAnswerFromFIFO =
-                let mod' = var "System.IO.ReadMode"
-                    file = string "test_output.fifo"
-                 in var "Test.QuickCheck.Monadic.run" @@
-                    (var "System.IO.withFile" @@ file @@ mod' @@ reading)
-              where
-                reading = var "System.IO.hGetLine"
             assertTrue =
-                stmt $
-                var "Test.QuickCheck.Monadic.assert" @@
-                (var "read" @@ var (fromString resName))
+                stmt $ var "Test.QuickCheck.Monadic.assert" @@ var (fromString resName)
     rawSchemeLitName = "rawScheme"
     rawSchemeLitSig = typeSig rawSchemeLitName $ var "Data.ByteString.ByteString"
     rawSchemeLit =
