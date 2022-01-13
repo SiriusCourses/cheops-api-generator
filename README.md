@@ -39,5 +39,8 @@ cmake .. && make
 ```bash
 stack test
 ```
-
-It is ugly, but it works :)
+There will be reappering warning
+```
+warning: mpd_setminalloc: ignoring request to set MPD_MINALLOC a second time
+```
+This warning appears due to pybind11. It is unable to do a full cleanup after a python interpreter as it finishes. For more information look [here](https://stackoverflow.com/questions/49757245/fixing-warning-message-related-to-mpd-setminalloc). It is hard to supress this warning. It comes from cpython and under the hood is just a print to stderr.
