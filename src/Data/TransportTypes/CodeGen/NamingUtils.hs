@@ -116,6 +116,10 @@ changeReservedNamesBack x         = x
 fieldNameToSumCon :: FieldName -> String
 fieldNameToSumCon = pascal
 
+-- | Generates pattern name by appending prime to it
+fieldNameToPatName :: FieldName -> String
+fieldNameToPatName = (++ "'")
+
 -- | Extracts name from string and title
 chooseName :: FieldName -> Maybe Title -> TR.TypeName
 chooseName fn m_title = capitalise $ fromMaybe fn m_title
@@ -154,6 +158,8 @@ defaultImportNames =
     , "Data.Text"
     , "Data.Vector"
     , "Data.Scientific"
+    , "Data.Maybe"
+    , "Data.Bifunctor"
     ]
 
 -- | Constant for default deriving clauses
@@ -162,6 +168,13 @@ defaultDerivingClause = [generic, json]
   where
     generic = deriving' [var "GHC.Generics.Generic", var "Show", var "Eq"]
     json = derivingAnyclass [var "Data.Yaml.ToJSON", var "Data.Yaml.FromJSON"]
+
+-- | Constant for default deriving clauses
+prodDerivingClause :: [HsDerivingClause']
+prodDerivingClause = [generic, json]
+  where
+    generic = deriving' [var "GHC.Generics.Generic", var "Show", var "Eq"]
+    json = derivingAnyclass [var "Data.Yaml.FromJSON"]
 
 -- | Takes type name and produces deriving clauses for "allOf", "anyOf" and "oneOf" for said type
 aofDerivingClause :: TR.TypeName -> [HsDerivingClause']
