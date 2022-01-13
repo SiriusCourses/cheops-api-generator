@@ -161,9 +161,53 @@ buildModule Payload {..} prefix =
             case v of
                 String txt -> U.fieldNameToSumCon $ T.unpack txt
                 _other     -> typename
-    buildJSONInstances :: TR.TypeRep -> HsDecl'
-    buildJSONInstances tr = undefined -- instance' _ _
 
+{-
+    buildToJSONInstance :: TR.TypeRep -> HsDecl'
+    buildToJSONInstance (TR.ProdType map)  = _wj
+    {-
+instance ToJSON Typename where
+    toJSON (Typename k1 k2 ... kn) = Object (KM.fromList [(k1, toJSON k1), ... (kn, toJSON kn)])
+    -}
+    buildToJSONInstance (TR.SumType map)   = _wk
+    {-
+instance ToJSON Typename where
+    toJSON (Option1 k) = toJSON k
+    ...
+    toJSON (OptionN k) = toJSON k
+    -}
+    buildToJSONInstance (TR.OneOf map)     = _wl
+    {-
+instance ToJSON Typename where
+    toJSON (Option1 k) = toJSON k
+    ...
+    toJSON (OptionN k) = toJSON k
+    -}
+    buildToJSONInstance (TR.AnyOfType set) = _wm
+    {-
+instance ToJSON Typename where
+    toJSON (Typename Nothing Nothing Nothing Nothing ...) = Object $ mempty
+    toJSON (Typename (Just k1) Nothing Nothing Nothing ...) = toJSON k1
+    ...
+    toJSON (Typename (Just k1) (Just k2) Nothing ...) =
+    -}
+    buildToJSONInstance (TR.AllOfType set) = _wn
+    buildToJSONInstance (TR.ArrayType tr') = _wo
+    buildToJSONInstance (TR.NewType tr')   = _wp
+    buildToJSONInstance (TR.Ref nlr)       = _wq
+    buildToJSONInstance (TR.Const va)      = _w
+
+    buildFromJSONInstance :: TR.TypeRep -> HsDecl'
+    buildFromJSONInstance (TR.ProdType map)  = _wj
+    buildFromJSONInstance (TR.SumType map)   = _wk
+    buildFromJSONInstance (TR.OneOf map)     = _wl
+    buildFromJSONInstance (TR.AnyOfType set) = _wm
+    buildFromJSONInstance (TR.AllOfType set) = _wn
+    buildFromJSONInstance (TR.ArrayType tr') = _wo
+    buildFromJSONInstance (TR.NewType tr')   = _wp
+    buildFromJSONInstance (TR.Ref nlr)       = _wq
+    buildFromJSONInstance (TR.Const va)      = _w
+-}
 buildModules :: ParserResult -> Either String (Map FilePath HsModule')
 buildModules = build buildModule
 
@@ -223,6 +267,7 @@ buildTest Payload {..} prefix =
             , "Data.ByteString.Lazy"
             , "Data.TransportTypes.FFI"
             , "Control.Exception"
+            , "Codec.Binary.UTF8.String"
             ] <>
             extImports <> locals
         exports = Nothing
@@ -247,15 +292,7 @@ buildTest Payload {..} prefix =
         testBdy =
             var "Test.QuickCheck.Monadic.monadicIO" @@
             do'
-                [ stmt $
-                  var "Test.QuickCheck.Monadic.run" @@
-                  (var "putStrLn" @@ string ("Running test for " ++ qualTypename))
-                , stmt $
-                  var "Test.QuickCheck.Monadic.run" @@ (var "putStrLn" @@ string "sample:")
-                , stmt $
-                  var "Test.QuickCheck.Monadic.run" @@
-                  (var "putStrLn" @@ (var "show" @@ var (fromString sampleName)))
-                , bvar "recScheme" <-- var "Test.QuickCheck.Monadic.run" @@
+                [ bvar "recScheme" <-- var "Test.QuickCheck.Monadic.run" @@
                   decodeEncode "scheme" (var "rawScheme")
                 , bvar "recSample" <-- var "Test.QuickCheck.Monadic.run" @@
                   decodeEncode "object" (var "Data.Yaml.encode" @@ var (fromString sampleName))
@@ -263,10 +300,34 @@ buildTest Payload {..} prefix =
                   (var "Data.TransportTypes.FFI.validateJSON" @@ var "recSample" @@
                    var "recScheme")
                 , stmt $
-                  var "Test.QuickCheck.Monadic.run" @@ (var "putStrLn" @@ string "result:")
-                , stmt $
-                  var "Test.QuickCheck.Monadic.run" @@
-                  (var "putStrLn" @@ (var "show" @@ var (fromString resName)))
+                  case'
+                      (var (fromString resName))
+                      [ match [bvar "True"] $ var "return" @@ unit
+                      , match [bvar "False"] $
+                        do'
+                            [ stmt $
+                              var "Test.QuickCheck.Monadic.run" @@
+                              (var "putStrLn" @@ string ("Failed test for " ++ qualTypename))
+                            , stmt $
+                              var "Test.QuickCheck.Monadic.run" @@
+                              (var "putStrLn" @@ string "sample:")
+                            , stmt $
+                              var "Test.QuickCheck.Monadic.run" @@
+                              (var "putStrLn" @@ (var "show" @@ var (fromString sampleName)))
+                            , stmt $
+                              var "Test.QuickCheck.Monadic.run" @@
+                              (var "putStrLn" @@ string "recoded sample:")
+                            , stmt $
+                              var "Test.QuickCheck.Monadic.run" @@
+                              (var "putStrLn" @@ (var "show" @@ var "recSample"))
+                            , stmt $
+                              var "Test.QuickCheck.Monadic.run" @@
+                              (var "putStrLn" @@ string "recoded scheme:")
+                            , stmt $
+                              var "Test.QuickCheck.Monadic.run" @@
+                              (var "putStrLn" @@ (var "Codec.Binary.UTF8.String.decode" @@ (var "Data.ByteString.unpack" @@ var "recScheme")))
+                            ]
+                      ]
                 , assertTrue
                 ]
           where

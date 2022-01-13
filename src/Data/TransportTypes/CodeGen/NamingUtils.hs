@@ -104,6 +104,14 @@ changeReservedNames "module"  = "_module'"
 changeReservedNames "default" = "_default'"
 changeReservedNames x         = x
 
+-- | Reverts haskell's reserved names translation
+changeReservedNamesBack :: String -> String
+changeReservedNamesBack "_type'"    = "type"
+changeReservedNamesBack "_data'"    = "data"
+changeReservedNamesBack "_module'"  = "module"
+changeReservedNamesBack "_default'" = "default"
+changeReservedNamesBack x         = x
+
 -- | Translates string to pascal case.
 fieldNameToSumCon :: FieldName -> String
 fieldNameToSumCon = pascal
