@@ -1,4 +1,4 @@
-module Data.TransportTypes.FFI(validateJSON) where
+module Data.TransportTypes.FFI(validateJSON, start_python, end_python) where
 
 {-# LANGUAGE ForeignFunctionInterface #-}
 
@@ -7,6 +7,8 @@ import Foreign.Marshal.Alloc (free)
 import Data.ByteString.Char8 (ByteString, unpack)
 
 foreign import ccall "unsafe_validate" unsafe_validate :: CString -> CString -> IO CBool
+foreign import ccall "start_python" start_python :: IO ()
+foreign import ccall "end_python" end_python :: IO ()
 
 validateJSON :: ByteString -> ByteString -> IO Bool
 validateJSON obj sch = do 
