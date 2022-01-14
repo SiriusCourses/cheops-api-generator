@@ -9,8 +9,7 @@ import           Data.List                   (intersperse)
 import           Data.Maybe                  (fromMaybe)
 import           Data.String                 (fromString)
 import qualified Data.TransportTypes.TypeRep as TR
-import           GHC.SourceGen               (App ((@@)), HsDerivingClause', Var (var),
-                                              deriving', derivingAnyclass, derivingVia)
+import           GHC.SourceGen               
 import           System.FilePath             (dropExtension, replaceFileName, takeBaseName,
                                               (<.>), (</>))
 import           Text.Casing                 (pascal)
@@ -160,27 +159,32 @@ defaultImportNames =
     , "Data.Scientific"
     , "Data.Maybe"
     , "Data.Bifunctor"
+    , "Prelude"
     ]
+
+-- | Import declaration to hide Prelude
+hidingPrelude :: ImportDecl'
+hidingPrelude = (flip exposing) [] $ import' "Prelude"
 
 -- | Constant for default deriving clauses
 defaultDerivingClause :: [HsDerivingClause']
 defaultDerivingClause = [generic, json]
   where
-    generic = deriving' [var "GHC.Generics.Generic", var "Show", var "Eq"]
+    generic = deriving' [var "GHC.Generics.Generic", var "Prelude.Show", var "Prelude.Eq"]
     json = derivingAnyclass [var "Data.Yaml.ToJSON", var "Data.Yaml.FromJSON"]
 
 -- | Constant for default deriving clauses
-prodDerivingClause :: [HsDerivingClause']
-prodDerivingClause = [generic, json]
+minDerivingClause :: [HsDerivingClause']
+minDerivingClause = [generic, json]
   where
-    generic = deriving' [var "GHC.Generics.Generic", var "Show", var "Eq"]
+    generic = deriving' [var "GHC.Generics.Generic", var "Prelude.Show", var "Prelude.Eq"]
     json = derivingAnyclass [var "Data.Yaml.FromJSON"]
 
 -- | Takes type name and produces deriving clauses for "allOf", "anyOf" and "oneOf" for said type
 aofDerivingClause :: TR.TypeName -> [HsDerivingClause']
 aofDerivingClause typename = [tojson, fromjson, generic]
   where
-    generic = deriving' [var "GHC.Generics.Generic", var "Show", var "Eq"]
+    generic = deriving' [var "GHC.Generics.Generic", var "Prelude.Show", var "Prelude.Eq"]
     fromjson = derivingAnyclass [var "Data.Yaml.FromJSON"]
     tojson =
         derivingVia

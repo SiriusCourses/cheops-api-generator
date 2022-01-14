@@ -19,11 +19,12 @@ import qualified Data.Text       as T
 
 import GHC.SourceGen
 
+import           Data.Text.Encoding                      (decodeUtf8)
 import           Data.TransportTypes.CodeGen.Hylo        (Payload (..), build)
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import           Data.TransportTypes.Parsing             (ParserResult (..))
 import qualified Data.TransportTypes.TypeRep             as TR
-import           Data.Yaml                               (Value (String))
+import           Data.Yaml                               (Value (..), encode)
 
 gatherLocalImports :: U.ModulePrefix -> TR.TypeRep -> [TR.ModuleName]
 gatherLocalImports prefix tr
@@ -70,10 +71,13 @@ buildModule Payload {..} prefix =
      in module'
             (Just . fromString $ U.prefixToModuleName prefix)
             exports
-            (extImports <> locals <> defaultImports <> specialDerivImports)
+            (extImports <> locals <> defaultImports <> [U.hidingPrelude] <> specialDerivImports)
             (buildTypeDecl typeRep :
              case typeRep of
                  TR.ProdType _ -> [buildToJSONInstance typeRep]
+                 TR.SumType _  -> [buildToJSONInstance typeRep]
+                 TR.Const _    -> [buildToJSONInstance typeRep]
+                 TR.OneOf _    -> [buildToJSONInstance typeRep]
                  _other        -> [])
   where
     typename :: TR.TypeName
@@ -84,7 +88,7 @@ buildModule Payload {..} prefix =
          in strict . field $ maybeWrapper req tt
       where
         maybeWrapper :: Bool -> HsType' -> HsType'
-        maybeWrapper False = (var "Maybe" @@)
+        maybeWrapper False = (var "Prelude.Maybe" @@)
         maybeWrapper True  = id
     buildTypeDecl :: TR.TypeRep -> HsDecl'
     buildTypeDecl (TR.AnyOfType set) =
@@ -95,7 +99,8 @@ buildModule Payload {..} prefix =
             (U.aofDerivingClause typename)
       where
         fields =
-            field . (var "Maybe" @@) . var . fromString . U.referenceToQualTypeName prefix <$>
+            field .
+            (var "Prelude.Maybe" @@) . var . fromString . U.referenceToQualTypeName prefix <$>
             Set.toList set
     buildTypeDecl (TR.AllOfType set) =
         data'
@@ -106,7 +111,7 @@ buildModule Payload {..} prefix =
       where
         fields = field . var . fromString . U.referenceToQualTypeName prefix <$> Set.toList set
     buildTypeDecl (TR.ProdType map') =
-        data' (fromString typename) [] [buildProdCon map'] U.prodDerivingClause
+        data' (fromString typename) [] [buildProdCon map'] U.minDerivingClause
       where
         buildProdCon :: Map TR.FieldName TR.Field -> ConDecl'
         buildProdCon km =
@@ -114,9 +119,9 @@ buildModule Payload {..} prefix =
             bimap (fromString . U.changeReservedNames) transformField <$> Map.toList km
     buildTypeDecl tr
         | (TR.SumType map') <- tr =
-            data' (fromString typename) [] (buildSumCon's map') U.defaultDerivingClause
+            data' (fromString typename) [] (buildSumCon's map') U.minDerivingClause
         | (TR.OneOf map') <- tr =
-            data' (fromString typename) [] (buildSumCon's map') (U.aofDerivingClause typename)
+            data' (fromString typename) [] (buildSumCon's map') U.minDerivingClause
       where
         buildSumCon's :: Map TR.FieldName TR.SumConstr -> [ConDecl']
         buildSumCon's km =
@@ -158,7 +163,7 @@ buildModule Payload {..} prefix =
             (fromString typename)
             []
             [prefixCon (fromString cntrName) []]
-            U.defaultDerivingClause
+            U.minDerivingClause
       where
         cntrName =
             case v of
@@ -177,25 +182,54 @@ buildModule Payload {..} prefix =
           where
             tupling key =
                 lambda [bvar "x"] (tuple [string key, var "Data.Yaml.toJSON" @@ var "x"])
-            myabeWrap req nm = let 
-                k = (fromString $ U.fieldNameToPatName nm)
-                in if req
-                    then var "Just" @@ var k
-                    else var "Prelude.id" @@ var k
+            myabeWrap req nm =
+                let k = (fromString $ U.fieldNameToPatName nm)
+                 in if req
+                        then var "Prelude.Just" @@ var k
+                        else var "Prelude.id" @@ var k
             pairs =
-                (\(k, TR.Field req _) ->
-                     var "fmap" @@ tupling k @@
-                     myabeWrap req k) <$>
+                (\(k, TR.Field req _) -> var "Prelude.fmap" @@ tupling k @@ myabeWrap req k) <$>
                 Map.toList map'
-    buildToJSONInstance (TR.SumType map) = undefined
-    buildToJSONInstance (TR.OneOf map) = undefined
+    buildToJSONInstance (TR.SumType map') =
+        instance'
+            (var "Data.Yaml.ToJSON" @@ var (fromString typename))
+            [funBinds "toJSON" $ uncurry mkClause <$> Map.toList map']
+        -- fields are ignored as there is no sum type in json(besides OneOf which is represented by it's own tag).
+        -- in future in migth be wise to make this other cases unrepresentable.
+      where
+        mkClause :: TR.FieldName -> TR.SumConstr -> RawMatch
+        mkClause optName (TR.SumConstr _) = match [patternMatch] cnt
+          where
+            patternMatch =
+                bvar (fromString . U.fieldNameToSumCon . U.changeReservedNames $ optName)
+            cnt = var "Data.Yaml.toJSON" @@ (var "Data.Yaml.String" @@ string optName)
+    buildToJSONInstance (TR.OneOf map') = instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename))
+            [funBinds "toJSON" $ uncurry mkClause <$> Map.toList map']
+      where
+        -- flds are treated if they have at most one entity as it is impossible to do otherwise in json
+        -- in future in migth be wise to make other case unrepresentable.
+        mkClause :: TR.FieldName -> TR.SumConstr -> RawMatch
+        mkClause optName (TR.SumConstr flds)
+          | [] <- flds = match [wildP] $ string optName
+          | otherwise = match [conP (fromString . U.fieldNameToSumCon $ optName) [bvar "x"]] $ var "Data.Yaml.toJSON" @@ var "x"
 
-    buildToJSONInstance (TR.AnyOfType set) = undefined
-    buildToJSONInstance (TR.AllOfType set) = undefined
+    buildToJSONInstance (TR.AnyOfType set') = undefined
+    buildToJSONInstance (TR.AllOfType set') = undefined
     buildToJSONInstance (TR.ArrayType tr') = undefined
     buildToJSONInstance (TR.NewType tr') = undefined
     buildToJSONInstance (TR.Ref nlr) = undefined
-    buildToJSONInstance (TR.Const va) = undefined
+    buildToJSONInstance (TR.Const va) =
+        instance'
+            (var "Data.Yaml.ToJSON" @@ var (fromString typename))
+            [funBind "toJSON" $ match [wildP] decl]
+      where
+        decl =
+            case'
+                (var "Data.Yaml.decodeEither'" `tyApp` var "Data.Yaml.Value" @@ string (T.unpack . decodeUtf8 . encode $ va)) $
+            [ match [conP "Prelude.Left" [wildP]] $
+              var "Prelude.error" @@ string "can't decode const value. Something is very wrong"
+            , match [conP "Prelude.Right" [bvar "x"]] $ var "x"
+            ]
     -- buildFromJSONInstance :: TR.TypeRep -> HsDecl'
     -- buildFromJSONInstance (TR.ProdType map)  = _wj
     -- buildFromJSONInstance (TR.SumType map)   = _wk
@@ -263,7 +297,7 @@ buildTests pr = do
             Nothing
             Nothing
             (qualified' . import' . fromString <$>
-             imports <> ["Test.QuickCheck", "System.Process", "System.Time.Extra"])
+             imports <> ["Test.QuickCheck", "System.Process", "System.Time.Extra", "Data.TransportTypes.FFI"])
             [mainSig, mainDef]
       where
         imports = U.prefixToModuleName . U.pathToPrefix <$> paths
@@ -272,7 +306,7 @@ buildTests pr = do
         mainDef = funBind main $ match [] mainBdy
           where
             testName = "prop_encdecInv"
-            mainBdy = do' $ take 10 testCalls
+            mainBdy = do' $ stmt (var "Data.TransportTypes.FFI.start_python") : testCalls ++ [stmt $ var "Data.TransportTypes.FFI.end_python"]
               where
                 testCalls =
                     (\t ->
@@ -396,7 +430,7 @@ buildTest Payload {..} prefix =
                       var "return" @@
                       (var "Data.ByteString.Lazy.toStrict" @@
                        (var "Data.Aeson.encode" @@
-                        (var (fromString decodedName) @::@  var "Data.Yaml.Value")))
+                        (var (fromString decodedName) @::@ var "Data.Yaml.Value")))
                     ]
               where
                 decodedName = "decoded"

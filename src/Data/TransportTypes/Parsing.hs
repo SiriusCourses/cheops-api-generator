@@ -216,9 +216,9 @@ parsePrimitve enc typeTag maybeTitle tInfo = do
         newtypeWrapper . TR.RefPrimitiveType $
         case typeTag of
             JS.PrimStringTag -> fromMaybe "Data.Text.Text" tInfo
-            JS.PrimIntTag    -> fromMaybe "Int" tInfo
+            JS.PrimIntTag    -> fromMaybe "Prelude.Int" tInfo
             JS.PrimDoubleTag -> fromMaybe "Data.Scientific.Scientific" tInfo
-            JS.PrimBoolTag   -> "Bool"
+            JS.PrimBoolTag   -> "Prelude.Bool"
             JS.PrimNullTag   -> "()"
 
 parseRecordLike :: Object -> JS.RecordLikeTag -> Maybe U.Title -> StatefulParser ModuleParts
