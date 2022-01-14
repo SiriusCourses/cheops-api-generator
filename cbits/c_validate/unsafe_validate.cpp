@@ -10,10 +10,6 @@ namespace py = pybind11;
 using namespace py::literals;
 
 bool cpp_validate(const std::string &o, const std::string &sch) {
-
-
-    py::scoped_interpreter guard{};
-
     auto locals = py::dict("object"_a = o, "schema"_a = sch);
     try {
     py::exec(R"(
@@ -33,5 +29,11 @@ jsonschema.validate(json_o, json_sch)
 extern "C" {
 bool unsafe_validate(const char *o, const char *sch) {
     return cpp_validate(std::string(o), std::string(sch));
+}
+void start_python(){
+    py::initialize_interpreter();
+}
+void end_python(){
+    py::finalize_interpreter();
 }
 }

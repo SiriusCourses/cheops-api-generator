@@ -5,7 +5,9 @@
 #ifndef C_VALIDATE_UNSAFE_VALIDATE_H
 #define C_VALIDATE_UNSAFE_VALIDATE_H
 extern "C"{
+    void start_python();
     bool unsafe_validate(const char* object, const char* scheme);
+    void end_python();
 };
 
 #endif //C_VALIDATE_UNSAFE_VALIDATE_H
