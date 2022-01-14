@@ -20,9 +20,31 @@ Now there is `generated-api/src` and `generated-api/test` directories with types
 
 ## How to run generated tests
 
-### Build cbits
+### Cbits
 
-There is [pybind11](https://pybind11.readthedocs.io/en/stable/) in use, so you need to install everything it needs. However there is no need to install `pybind`, it will fetch itself locally during `cmake ..`
+Three functions are exposed from Python to C through [pybind11](https://pybind11.readthedocs.io/en/stable/) and then from C to haskell through ffi. 
+
+```haskell
+foreign import ccall "unsafe_validate" unsafe_validate :: CString -> CString -> IO CBool
+foreign import ccall "start_python" start_python :: IO ()
+foreign import ccall "end_python" end_python :: IO ()
+```
+
+```c++
+extern "C"{
+    //initialize python interpretator
+    void start_python(); 
+    // validate via jsonschema.validate
+    bool unsafe_validate(const char* object, const char* scheme); 
+    //shut down python interpretator
+    void end_python();
+};
+```
+See `test/Spec.hs` to use example. 
+
+### Building cbits
+
+There is pybind11 in use, so you need to install everything it needs. However there is no need to install `pybind`, it will fetch itself locally during `cmake ..`
 
 ```bash
 cd cbits/c_validate
@@ -30,7 +52,7 @@ mkdir cmake-build-debug && cd cmake-build-debug
 cmake .. && make
 ```
 
-### Haskell 
+### Building Haskell 
 
 1. Add `generated-api/src` to `library.source-dirs` in `package.yaml`
 2. Add `generated-api/test` to `tests.source-dirs` in `package.yaml`
@@ -39,8 +61,4 @@ cmake .. && make
 ```bash
 stack test
 ```
-There will be reappering warning
-```
-warning: mpd_setminalloc: ignoring request to set MPD_MINALLOC a second time
-```
-This warning appears due to pybind11. It is unable to do a full cleanup after a python interpreter as it finishes. For more information look [here](https://stackoverflow.com/questions/49757245/fixing-warning-message-related-to-mpd-setminalloc). It is hard to supress this warning. It comes from cpython and under the hood is just a print to stderr.
+Prepare for a long wait.
