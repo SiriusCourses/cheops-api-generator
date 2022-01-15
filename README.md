@@ -1,4 +1,4 @@
-# config-generation
+# Transport type generation
 
 ## How to genereate types
 
