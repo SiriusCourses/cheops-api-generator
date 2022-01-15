@@ -7,10 +7,12 @@ import           Data.String (fromString)
 import qualified Data.Text   as T
 
 import           GHC.SourceGen (App ((@@)), BVar (bvar), HasTuple (unit), HsModule', Var (var),
-                                case', conP, do', funBind, import', instance', match, module',
-                                qualified', stmt, string, typeSig, (-->), (<--))
+                                case', conP, do', funBind, import', instance', int, match,
+                                module', qualified', recordUpd, stmt, string, typeSig, (-->),
+                                (<--))
 import qualified GHC.SourceGen as GCH.SG
 
+import           Data.List                               (intersperse)
 import           Data.TransportTypes.CodeGen.Hylo        (Payload (..))
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import           Data.TransportTypes.CodeGen.TypeGen     (gatherLocalImports)
@@ -38,7 +40,7 @@ perTestImports =
     ]
 
 specImports :: [String]
-specImports = ["Test.QuickCheck", "Data.TransportTypes.FFI"]
+specImports = ["Test.QuickCheck", "Data.TransportTypes.FFI", "System.ProgressBar"]
 
 buildSpec :: [FilePath] -> HsModule'
 buildSpec paths =
@@ -57,14 +59,25 @@ buildSpec paths =
         mainBdy =
             do' $
             stmt (var "Data.TransportTypes.FFI.start_python") :
+            (bvar "pb" <-- progressBar) :
             testCalls ++ [stmt $ var "Data.TransportTypes.FFI.end_python"]
           where
             testCalls =
+                intersperse (stmt $ var "System.ProgressBar.incProgress" @@ var "pb" @@ int 1) $
                 (\t ->
                      stmt $
-                     var "Test.QuickCheck.quickCheck" @@
+                     var "Test.QuickCheck.quickCheckWith" @@
+                     recordUpd
+                         (var "Test.QuickCheck.stdArgs")
+                         [("Test.QuickCheck.chatty", var "False")] @@
                      var (fromString $ t ++ "." ++ testName)) <$>
                 imports
+            progressBar =
+                var "System.ProgressBar.newProgressBar" @@ var "System.ProgressBar.defStyle" @@
+                int 10 @@
+                (var "System.ProgressBar.Progress" @@ int 0 @@
+                 int (fromIntegral $ length paths) @@
+                 var "()")
 
 buildTest :: Payload -> U.ModulePrefix -> HsModule'
 buildTest Payload {..} prefix =
@@ -111,27 +124,19 @@ buildTest Payload {..} prefix =
                       (var (fromString resName))
                       [ match [bvar "True"] $ var "return" @@ unit
                       , match [bvar "False"] $
+                        var "Test.QuickCheck.Monadic.run" @@
                         do'
-                            [ stmt $
-                              var "Test.QuickCheck.Monadic.run" @@
-                              (var "putStrLn" @@ string ("Failed test for " ++ qualTypename))
+                            [ stmt $ var "putStrLn" @@ string ""
+                            , stmt $ var "putStrLn" @@ string ""
                             , stmt $
-                              var "Test.QuickCheck.Monadic.run" @@
-                              (var "putStrLn" @@ string "sample:")
+                              var "putStrLn" @@ string ("Failed test for " ++ qualTypename)
+                            , stmt $ var "putStrLn" @@ string "sample:"
                             , stmt $
-                              var "Test.QuickCheck.Monadic.run" @@
-                              (var "putStrLn" @@ (var "show" @@ var (fromString sampleName)))
+                              var "putStrLn" @@ (var "show" @@ var (fromString sampleName))
+                            , stmt $ var "putStrLn" @@ string "recoded sample:"
+                            , stmt $ var "putStrLn" @@ (var "show" @@ var "recSample")
+                            , stmt $ var "putStrLn" @@ string "recoded scheme:"
                             , stmt $
-                              var "Test.QuickCheck.Monadic.run" @@
-                              (var "putStrLn" @@ string "recoded sample:")
-                            , stmt $
-                              var "Test.QuickCheck.Monadic.run" @@
-                              (var "putStrLn" @@ (var "show" @@ var "recSample"))
-                            , stmt $
-                              var "Test.QuickCheck.Monadic.run" @@
-                              (var "putStrLn" @@ string "recoded scheme:")
-                            , stmt $
-                              var "Test.QuickCheck.Monadic.run" @@
                               (var "putStrLn" @@
                                (var "Codec.Binary.UTF8.String.decode" @@
                                 (var "Data.ByteString.unpack" @@ var "recScheme")))
