@@ -20,6 +20,14 @@ Now there is `generated-api/src` and `generated-api/test` directories with types
 
 ## How to run generated tests
 
+### Python dependecies
+
+Validation function uses `json` and `jsonschema`, so 
+```bash
+pip3 install json jsonschema
+```
+The important part is that if there are no such dependecies installed then `unsafe_validatete` exposed to haskell will just return `False` every time. **WITHOUT** any indication that it is a missing dependancy problem, not a validation one.
+
 ### Cbits
 
 Three functions are exposed from Python to C through [pybind11](https://pybind11.readthedocs.io/en/stable/) and then from C to haskell through ffi. 
