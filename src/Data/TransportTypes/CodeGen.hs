@@ -22,6 +22,7 @@ import GHC.SourceGen
 import           Data.Text.Encoding                      (decodeUtf8)
 import           Data.TransportTypes.CodeGen.Hylo        (Payload (..), build)
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
+import qualified Data.TransportTypes.CodeGen.Utils as U
 import           Data.TransportTypes.Parsing             (ParserResult (..))
 import qualified Data.TransportTypes.TypeRep             as TR
 import           Data.Yaml                               (Value (..), encode)
