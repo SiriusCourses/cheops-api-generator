@@ -64,7 +64,6 @@ buildModule Payload {..} prefix =
         specialDerivImports =
             qualified' . import' . fromString <$>
             case typeRep of
-                TR.OneOf _     -> ["Data.TransportTypes.Deriv"]
                 TR.AnyOfType _ -> ["Data.TransportTypes.Deriv"]
                 TR.AllOfType _ -> ["Data.TransportTypes.Deriv"]
                 _else          -> []
@@ -78,6 +77,9 @@ buildModule Payload {..} prefix =
                  TR.SumType _  -> [buildToJSONInstance typeRep]
                  TR.Const _    -> [buildToJSONInstance typeRep]
                  TR.OneOf _    -> [buildToJSONInstance typeRep]
+                 TR.NewType _  -> [buildToJSONInstance typeRep]
+                 TR.ArrayType _  -> [buildToJSONInstance typeRep]
+                 TR.Ref _  -> [buildToJSONInstance typeRep]
                  _other        -> [])
   where
     typename :: TR.TypeName
@@ -135,7 +137,7 @@ buildModule Payload {..} prefix =
             (fromString typename)
             []
             (prefixCon (fromString typename) [field $ listType @@ listItem])
-            U.defaultDerivingClause
+            U.minDerivingClause
       where
         listType = var "Data.Vector.Vector"
         listItem = var . fromString $ U.referenceToQualTypeName prefix tr'
@@ -144,7 +146,7 @@ buildModule Payload {..} prefix =
             newtypename
             []
             (recordCon constructorName [(getter, internalType)])
-            U.defaultDerivingClause
+            U.minDerivingClause
       where
         newtypename = fromString typename
         constructorName = fromString typename
@@ -155,15 +157,11 @@ buildModule Payload {..} prefix =
             (fromString typename)
             []
             (prefixCon (fromString typename) [field symtype])
-            U.defaultDerivingClause
+            U.minDerivingClause
       where
         symtype = var . fromString $ U.nonLocalReferenceToQualTypeName nlr
     buildTypeDecl (TR.Const v) =
-        data'
-            (fromString typename)
-            []
-            [prefixCon (fromString cntrName) []]
-            U.minDerivingClause
+        data' (fromString typename) [] [prefixCon (fromString cntrName) []] U.minDerivingClause
       where
         cntrName =
             case v of
@@ -203,21 +201,41 @@ buildModule Payload {..} prefix =
             patternMatch =
                 bvar (fromString . U.fieldNameToSumCon . U.changeReservedNames $ optName)
             cnt = var "Data.Yaml.toJSON" @@ (var "Data.Yaml.String" @@ string optName)
-    buildToJSONInstance (TR.OneOf map') = instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename))
+    buildToJSONInstance (TR.OneOf map') =
+        instance'
+            (var "Data.Yaml.ToJSON" @@ var (fromString typename))
             [funBinds "toJSON" $ uncurry mkClause <$> Map.toList map']
-      where
         -- flds are treated if they have at most one entity as it is impossible to do otherwise in json
         -- in future in migth be wise to make other case unrepresentable.
+      where
         mkClause :: TR.FieldName -> TR.SumConstr -> RawMatch
         mkClause optName (TR.SumConstr flds)
-          | [] <- flds = match [wildP] $ string optName
-          | otherwise = match [conP (fromString . U.fieldNameToSumCon $ optName) [bvar "x"]] $ var "Data.Yaml.toJSON" @@ var "x"
-
+            | [] <- flds = match [wildP] $ string optName
+            | otherwise =
+                match [conP (fromString . U.fieldNameToSumCon $ optName) [bvar "x"]] $
+                var "Data.Yaml.toJSON" @@ var "x"
     buildToJSONInstance (TR.AnyOfType set') = undefined
     buildToJSONInstance (TR.AllOfType set') = undefined
-    buildToJSONInstance (TR.ArrayType tr') = undefined
-    buildToJSONInstance (TR.NewType tr') = undefined
-    buildToJSONInstance (TR.Ref nlr) = undefined
+    buildToJSONInstance (TR.ArrayType _) =
+        instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename)) [decl]
+      where
+        decl =
+            funBind "toJSON" $
+            match [conP (fromString typename) [bvar "vec"]] $
+            var "Data.Yaml.Array" @@
+            (var "Prelude.fmap" @@ var "Data.Yaml.toJSON" @@ var "vec")
+    buildToJSONInstance (TR.NewType _) =
+        instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename)) [decl]
+      where
+        decl =
+            funBind "toJSON" $
+            match [conP (fromString typename) [bvar "x"]] $ var "Data.Yaml.toJSON" @@ var "x"
+    buildToJSONInstance (TR.Ref _) =
+        instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename)) [decl]
+      where
+        decl =
+            funBind "toJSON" $
+            match [conP (fromString typename) [bvar "x"]] $ var "Data.Yaml.toJSON" @@ var "x"
     buildToJSONInstance (TR.Const va) =
         instance'
             (var "Data.Yaml.ToJSON" @@ var (fromString typename))
@@ -225,7 +243,8 @@ buildModule Payload {..} prefix =
       where
         decl =
             case'
-                (var "Data.Yaml.decodeEither'" `tyApp` var "Data.Yaml.Value" @@ string (T.unpack . decodeUtf8 . encode $ va)) $
+                (var "Data.Yaml.decodeEither'" `tyApp` var "Data.Yaml.Value" @@
+                 string (T.unpack . decodeUtf8 . encode $ va)) $
             [ match [conP "Prelude.Left" [wildP]] $
               var "Prelude.error" @@ string "can't decode const value. Something is very wrong"
             , match [conP "Prelude.Right" [bvar "x"]] $ var "x"
@@ -241,48 +260,6 @@ buildModule Payload {..} prefix =
     -- buildFromJSONInstance (TR.Ref nlr)       = _wq
     -- buildFromJSONInstance (TR.Const va)      = _w
 
-{-
-instance ToJSON Typename where
-    toJSON (Typename k1 k2 ... kn) = Object (KM.fromList [($k1, toJSON k1), ... ($kn, toJSON kn)])
--}
-{-
-instance ToJSON Typename where
-    toJSON (Option1 k) = toJSON k
-    ...
-    toJSON (OptionN k) = toJSON k
--}
-{-
-instance ToJSON Typename where
-    toJSON (Option1 k) = toJSON k
-    ...
-    toJSON (OptionN k) = toJSON k
--}
-{-
-instance ToJSON Typename where
-    toJSON (Typename Nothing Nothing Nothing Nothing ...) = Object $ mempty
-    toJSON (Typename (Just k1) Nothing Nothing Nothing ...) = toJSON k1
-    ...
-    toJSON (Typename (Just k1) (Just k2) Nothing ...) = merge (toJSON k1) (toJSON k2)
--}
-{-
-instance ToJSON Typename where
-    toJSON (Typename k1 k2 ...) = merge (toJSON k1) (toJSON k2) ...
--}
-{-
-instance ToJSON Typename where
-    generic??
--}
-{-
-instance ToJSON Typename where
-    discard newtype wrapper?
--}
-{-
-deriving newtype instance ToJSON Typename
--}
-{-
-instance ToJSON Typename where
-    inline const?
--}
 buildModules :: ParserResult -> Either String (Map FilePath HsModule')
 buildModules = build buildModule
 
@@ -297,7 +274,10 @@ buildTests pr = do
             Nothing
             Nothing
             (qualified' . import' . fromString <$>
-             imports <> ["Test.QuickCheck", "System.Process", "System.Time.Extra", "Data.TransportTypes.FFI"])
+             imports <>
+             [ "Test.QuickCheck"
+             , "Data.TransportTypes.FFI"
+             ])
             [mainSig, mainDef]
       where
         imports = U.prefixToModuleName . U.pathToPrefix <$> paths
@@ -306,7 +286,10 @@ buildTests pr = do
         mainDef = funBind main $ match [] mainBdy
           where
             testName = "prop_encdecInv"
-            mainBdy = do' $ stmt (var "Data.TransportTypes.FFI.start_python") : testCalls ++ [stmt $ var "Data.TransportTypes.FFI.end_python"]
+            mainBdy =
+                do' $
+                stmt (var "Data.TransportTypes.FFI.start_python") :
+                testCalls ++ [stmt $ var "Data.TransportTypes.FFI.end_python"]
               where
                 testCalls =
                     (\t ->
