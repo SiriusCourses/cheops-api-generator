@@ -2,9 +2,9 @@
 
 module CabalGen where
 
-import System.Process
+-- import System.Process
 
-createEmptyCabalProject dir = createProcess (proc "cabal init" []) {cwd = Just dir}
+-- createEmptyCabalProject dir = createProcess (proc "cabal init" []) {cwd = Just dir}
 {-
 import Distribution.Types.GenericPackageDescription
 cabal = GenericPackageDescription {..}

@@ -21,57 +21,52 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 default-extensions: 
 - BangPatterns
+- ScopedTypeVariables
 - GADTs
+- DataKinds
 - TypeApplications
 - TypeOperators
-- ScopedTypeVariables
 - StandaloneDeriving
-- OverloadedStrings
 - DerivingStrategies         
 - DerivingVia     
 - DeriveGeneric
 - DeriveAnyClass           
 - GeneralizedNewtypeDeriving 
+- OverloadedStrings
 - TupleSections
 - LambdaCase
-- DataKinds
 - TemplateHaskell
 
 dependencies:
 - base >= 4.9 && < 5
 - mtl
 - containers
-- template-haskell
+- text
+- vector
+- lens
 - aeson >= 2.0
 - yaml
 - libyaml
 - conduit
-- text
-- vector
-- bound
 - ghc-source-gen
 - ghc-paths
 - ghc
 - ghc-prim
 - directory
 - filepath
-- random
-- lens
-- optparse-generic
-- unix
 - filemanip
-# - MissingH
+- unix
 - casing
-- scientific
 - split
-- terminal-progress-bar
+- optparse-generic
+- scientific
 - QuickCheck
-- generic-random
 - quickcheck-instances
+- generic-random
+- template-haskell
+- terminal-progress-bar
 - utf8-string
 - bytestring
-- process
-- extra
 
 ghc-options:
 - -Wincomplete-patterns
@@ -81,9 +76,7 @@ ghc-options:
 - -Wcompat
 - -Wincomplete-record-updates
 - -Wredundant-constraints
-# - -fdefer-type-errors
 - -fshow-hole-constraints
-- -fno-show-valid-hole-fits
 - -fshow-docs-of-hole-fits
 - -frefinement-level-hole-fits=2
 
