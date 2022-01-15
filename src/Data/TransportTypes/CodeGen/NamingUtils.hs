@@ -1,5 +1,5 @@
 {-|
-Module      : Data.TransportTypes.Traverse.Utils
+Module      : Data.TransportTypes.CodeGen.NamingUtils
 Description : Helper functions for getting type names and module names from title and prefix
 -}
 module Data.TransportTypes.CodeGen.NamingUtils where
@@ -7,9 +7,9 @@ module Data.TransportTypes.CodeGen.NamingUtils where
 import           Data.Function               ((&))
 import           Data.List                   (intersperse)
 import           Data.Maybe                  (fromMaybe)
-import           Data.String                 (fromString)
+
 import qualified Data.TransportTypes.TypeRep as TR
-import           GHC.SourceGen               
+          
 import           System.FilePath             (dropExtension, replaceFileName, takeBaseName,
                                               (<.>), (</>))
 import           Text.Casing                 (pascal)
