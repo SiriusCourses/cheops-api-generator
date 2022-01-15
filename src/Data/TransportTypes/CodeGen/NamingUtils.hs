@@ -49,6 +49,10 @@ prefixToQualTypeName p@(s:_) tn =
 prefixToQualTypeName [] (Just tn) = unnamed ++ "." ++ capitalise tn
 prefixToQualTypeName [] Nothing = unnamed ++ "." ++ unnamed
 
+-- | Converts qualified typename to unqualified one
+typenameFromQualTypeName :: QualTypeName -> TR.TypeName
+typenameFromQualTypeName = last . split '.' 
+
 -- | Converts prefix and title to non-qualified type name which is exported by corresponding module
 prefixToTypeName :: ModulePrefix -> Maybe Title -> TR.TypeName
 prefixToTypeName (s:_) tn = capitalise $ fromMaybe s tn
