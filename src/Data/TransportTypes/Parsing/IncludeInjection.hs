@@ -17,6 +17,7 @@ import           Conduit           (MonadIO (liftIO), MonadResource, await)
 import           Data.Conduit      (ConduitM, awaitForever, yield, (.|))
 import qualified Data.Conduit.List as CL
 
+import Data.Maybe       (catMaybes)
 import System.Directory (canonicalizePath, doesFileExist)
 import System.FilePath  (isAbsolute, joinPath, splitPath, takeDirectory, (</>))
 import System.IO.Error  (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
@@ -31,7 +32,7 @@ eventsFromFile (RepositoryRoot crr) = go [] []
     go injectedEvents seen fp = do
         cfp <- liftIO $ handleNotFound $ canonicalizePath =<< rerootPath Nothing fp
         when (cfp `elem` seen) $ liftIO $ throwIO CyclicIncludes
-        Y.decodeFile cfp .| conduitInjector injectedEvents .| do
+        Y.decodeFile cfp .| additionalPropertiesNoticer .| conduitInjector injectedEvents .| do
             awaitForever $ \event ->
                 case event of
                     EventScalar f (UriTag "!include") _ _ -> do
@@ -91,3 +92,22 @@ eventsFromFile (RepositoryRoot crr) = go [] []
                 yield one'
                 -- recourse on yourself
                 conduitInjector els
+    additionalPropertiesNoticer :: (Monad m) => ConduitM Event Event m ()
+    additionalPropertiesNoticer = do
+        one <- await
+        two <- await
+        three <- await
+        case (one, two) of
+            (Nothing, _) -> return ()
+            (Just one', Nothing) -> do
+                yield one'
+                return ()
+            (Just (EventScalar "additionalProperties" _ _ _), _) ->
+                case three of
+                    Nothing -> return ()
+                    Just three' -> do
+                        yield three'
+                        additionalPropertiesNoticer
+            _ -> do
+                traverse_ yield $ catMaybes [one, two, three]
+                additionalPropertiesNoticer
