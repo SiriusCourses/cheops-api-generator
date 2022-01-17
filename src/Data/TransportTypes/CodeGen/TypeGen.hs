@@ -20,8 +20,9 @@ import qualified Data.Text      as T
 
 import GHC.SourceGen (App ((@@)), BVar (bvar), ConDecl', Field, HasList (list), HsDecl',
                       HsModule', HsType', RawMatch, Var (var), case', conP, data', field,
-                      funBind, funBinds, import', instance', lambda, match, module', newtype',
-                      prefixCon, qualified', recordCon, strict, string, tuple, tyApp, wildP)
+                      funBind, funBinds, import', instance', lambda, let', match, matchGRHSs,
+                      module', newtype', op, prefixCon, qualified', recordCon, rhs, strict,
+                      string, tuple, tyApp, valBind, where', wildP)
 
 import           Control.Monad.Reader              (Reader, asks, runReader)
 import           Data.Text.Encoding                (decodeUtf8)
@@ -79,7 +80,6 @@ buildModule Payload {..} prefix =
             qualified' . import' . fromString <$>
             case typeRep of
                 TR.AnyOfType _ -> ["Data.TransportTypes.Deriv"]
-                TR.AllOfType _ -> ["Data.TransportTypes.Deriv"]
                 _else          -> []
      in module'
             (Just . fromString $ U.prefixToModuleName prefix)
@@ -100,6 +100,7 @@ buildModule Payload {..} prefix =
             TR.NewType _   -> [buildToJSONInstance typename typeRep]
             TR.ArrayType _ -> [buildToJSONInstance typename typeRep]
             TR.Ref _       -> [buildToJSONInstance typename typeRep]
+            TR.AllOfType _ -> [buildToJSONInstance typename typeRep]
             _other         -> []
 
 transformField :: U.ModulePrefix -> TR.Field -> Field
@@ -134,7 +135,7 @@ buildTypeDecl (TR.AllOfType set) = do
             (fromString typename)
             []
             [prefixCon (fromString typename) fields]
-            (U.aofDerivingClause typename)
+            U.minDerivingClause
 buildTypeDecl (TR.ProdType map') = do
     typename <- askTypename
     prodCntr <- buildProdCon map'
@@ -252,8 +253,45 @@ buildToJSONInstance typename (TR.OneOf map') =
         | otherwise =
             match [conP (fromString . U.fieldNameToSumCon $ optName) [bvar "x"]] $
             var "Data.Yaml.toJSON" @@ var "x"
-buildToJSONInstance typename (TR.AnyOfType set') = undefined
-buildToJSONInstance typename (TR.AllOfType set') = undefined
+buildToJSONInstance _ (TR.AnyOfType _) = undefined
+buildToJSONInstance typename (TR.AllOfType set)
+    | Set.null set =
+        instance'
+            (var "Data.Yaml.ToJSON" @@ var (fromString typename))
+            [funBind "toJSON" $ match [wildP] $ string typename]
+    | Set.size set == 1 =
+        instance'
+            (var "Data.Yaml.ToJSON" @@ var (fromString typename))
+            [ funBind "toJSON" $
+              match [conP (fromString typename) [bvar "x"]] $ var "toJSON" @@ var "x"
+            ]
+    | otherwise = instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename)) [decl]
+  where
+    bindNames = (\x -> "opt" ++ show x) <$> [1 .. (Set.size set)]
+    decl =
+        funBind "toJSON" $
+        matchGRHSs [conP (fromString typename) (bvar . fromString <$> bindNames)] $
+        rhs
+            (let'
+                 [ valBind "objs" $
+                   list ((\n -> var "Data.Yaml.toJSON" @@ (var . fromString $ n)) <$> bindNames)
+                 ]
+                 (var "Data.Foldable.foldl'" @@ var "merge" @@ (var "Prelude.head" @@ var "objs") @@
+                  (var "Prelude.tail" @@ var "objs"))) `where'`
+        [ funBinds
+              "merge"
+              [ match
+                    [conP "Data.Yaml.Object" [bvar "lo"], conP "Data.Yaml.Object" [bvar "ro"]] $
+                var "Data.Yaml.Object" @@ op (var "ro") "Prelude.<>" (var "lo")
+              , match
+                    [bvar "lv", bvar "rv"]
+                    (case'
+                         (op (var "lv") "Prelude.==" (var "rv"))
+                         [ match [bvar "Prelude.True"] (var "lv")
+                         , match [bvar "Prelude.False"] (var "Data.Yaml.Null")
+                         ])
+              ]
+        ]
 buildToJSONInstance typename (TR.ArrayType _) =
     instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename)) [decl]
   where
@@ -282,8 +320,12 @@ buildToJSONInstance typename (TR.Const va) =
         case'
             (var "Data.Yaml.decodeEither'" `tyApp` var "Data.Yaml.Value" @@
              string (T.unpack . decodeUtf8 . encode $ va))
-            [ match [conP "Prelude.Left" [wildP]] $
-              var "Prelude.error" @@ string "can't decode const value. Something is very wrong"
+            [ match [conP "Prelude.Left" [bvar "err"]] $
+              var "Prelude.error" @@
+              op
+                  (string "can't decode const value. Something is very wrong: ")
+                  "Prelude.++"
+                  (var "Prelude.show" @@ var "err")
             , match [conP "Prelude.Right" [bvar "x"]] $ var "x"
             ]
 -- buildFromJSONInstance :: TR.TypeRep -> HsDecl'

@@ -9,7 +9,7 @@ import qualified Data.Text   as T
 import           GHC.SourceGen (App ((@@)), BVar (bvar), HasTuple (unit), HsModule', Var (var),
                                 case', conP, do', funBind, import', instance', int, match,
                                 module', qualified', recordUpd, stmt, string, typeSig, (-->),
-                                (<--))
+                                (<--), strictP)
 import qualified GHC.SourceGen as GCH.SG
 
 import           Data.List                               (intersperse)
@@ -69,7 +69,9 @@ buildSpec paths =
                      var "Test.QuickCheck.quickCheckWith" @@
                      recordUpd
                          (var "Test.QuickCheck.stdArgs")
-                         [("Test.QuickCheck.chatty", var "False")] @@
+                         [ ("Test.QuickCheck.chatty", var "False")
+                         , ("Test.QuickCheck.maxSuccess", int 25)
+                         ] @@
                      var (fromString $ t ++ "." ++ testName)) <$>
                 imports
             progressBar =
@@ -112,11 +114,11 @@ buildTest Payload {..} prefix =
         testBdy =
             var "Test.QuickCheck.Monadic.monadicIO" @@
             do'
-                [ bvar "recScheme" <-- var "Test.QuickCheck.Monadic.run" @@
+                [ strictP (bvar "recScheme") <-- var "Test.QuickCheck.Monadic.run" @@
                   decodeEncode "scheme" (var "rawScheme")
-                , bvar "recSample" <-- var "Test.QuickCheck.Monadic.run" @@
+                , strictP (bvar "recSample") <-- var "Test.QuickCheck.Monadic.run" @@
                   decodeEncode "object" (var "Data.Yaml.encode" @@ var (fromString sampleName))
-                , bvar (fromString resName) <-- var "Test.QuickCheck.Monadic.run" @@
+                , strictP (bvar (fromString resName)) <-- var "Test.QuickCheck.Monadic.run" @@
                   (var "Data.TransportTypes.FFI.validateJSON" @@ var "recSample" @@
                    var "recScheme")
                 , stmt $
@@ -137,9 +139,9 @@ buildTest Payload {..} prefix =
                             , stmt $ var "putStrLn" @@ (var "show" @@ var "recSample")
                             , stmt $ var "putStrLn" @@ string "recoded scheme:"
                             , stmt $
-                              (var "putStrLn" @@
-                               (var "Codec.Binary.UTF8.String.decode" @@
-                                (var "Data.ByteString.unpack" @@ var "recScheme")))
+                              var "putStrLn" @@
+                              (var "Codec.Binary.UTF8.String.decode" @@
+                               (var "Data.ByteString.unpack" @@ var "recScheme"))
                             ]
                       ]
                 , assertTrue
