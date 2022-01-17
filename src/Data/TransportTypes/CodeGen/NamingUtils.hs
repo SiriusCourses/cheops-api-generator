@@ -164,4 +164,5 @@ defaultImportNames =
     , "Data.Maybe"
     , "Data.Bifunctor"
     , "Prelude"
+    , "Data.Foldable"
     ]
