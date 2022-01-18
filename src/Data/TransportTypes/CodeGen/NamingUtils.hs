@@ -4,16 +4,16 @@ Description : Helper functions for getting type names and module names from titl
 -}
 module Data.TransportTypes.CodeGen.NamingUtils where
 
-import           Data.Function               ((&))
-import           Data.List                   (intersperse)
-import           Data.Maybe                  (fromMaybe)
+import Data.Function ((&))
+import Data.List     (intersperse)
+import Data.Maybe    (fromMaybe)
 
 import qualified Data.TransportTypes.TypeRep as TR
-          
-import           System.FilePath             (dropExtension, replaceFileName, takeBaseName,
-                                              (<.>), (</>))
-import           Text.Casing                 (pascal)
-import           Util                        (capitalise, split)
+
+import qualified Data.Text       as T
+import           System.FilePath (dropExtension, replaceFileName, takeBaseName, (<.>), (</>))
+import           Text.Casing     (pascal)
+import           Util            (split)
 
 type ModulePrefix = [String]
 
@@ -29,34 +29,34 @@ type FieldName = String
 unnamed :: String
 unnamed = "Unnamed"
 
--- | Appends capitalized name as head to prefix
+-- | Appends capitalised name as head to prefix
 updatePrefix :: FieldName -> ModulePrefix -> ModulePrefix
-updatePrefix fieldName prefix = capitalise fieldName : prefix
+updatePrefix fieldName prefix = (pascal $ fieldName) : prefix
 
 -- | Converts path to haskell module to qualified module name
 pathToPrefix :: FilePath -> ModulePrefix
 pathToPrefix []   = [unnamed]
-pathToPrefix path = reverse . fmap capitalise . split '/' $ path & dropExtension
+pathToPrefix path = reverse . fmap (pascal) . split '/' $ path & dropExtension
 
 -- | Converts prefix to qualified module name
 prefixToModuleName :: ModulePrefix -> ModuleName
-prefixToModuleName prefix = mconcat . reverse . intersperse "." $ capitalise <$> prefix
+prefixToModuleName prefix = mconcat . reverse . intersperse "." $ (pascal) <$> prefix
 
 -- | Converts prefix and title to qualified type name which is exported by correspondnig module
 prefixToQualTypeName :: ModulePrefix -> Maybe Title -> QualTypeName
 prefixToQualTypeName p@(s:_) tn =
-    mconcat . reverse . intersperse "." $ capitalise <$> fromMaybe s tn : p
-prefixToQualTypeName [] (Just tn) = unnamed ++ "." ++ capitalise tn
+    mconcat . reverse . intersperse "." $ (pascal) <$> fromMaybe s tn : p
+prefixToQualTypeName [] (Just tn) = unnamed ++ "." ++ (pascal $ tn)
 prefixToQualTypeName [] Nothing = unnamed ++ "." ++ unnamed
 
 -- | Converts qualified typename to unqualified one
 typenameFromQualTypeName :: QualTypeName -> TR.TypeName
-typenameFromQualTypeName = last . split '.' 
+typenameFromQualTypeName = last . split '.'
 
 -- | Converts prefix and title to non-qualified type name which is exported by corresponding module
 prefixToTypeName :: ModulePrefix -> Maybe Title -> TR.TypeName
-prefixToTypeName (s:_) tn = capitalise $ fromMaybe s tn
-prefixToTypeName [] tn    = capitalise $ fromMaybe unnamed tn
+prefixToTypeName (s:_) tn = pascal $ fromMaybe s tn
+prefixToTypeName [] tn    = pascal $ fromMaybe unnamed tn
 
 -- | Converts prefix to path to haskell module
 prefixToPath :: ModulePrefix -> FilePath
@@ -65,22 +65,22 @@ prefixToPath prefix = foldl1 (</>) (reverse prefix) <.> "hs"
 -- | Converts type reference and prefix to qualified type name exported be corresponding module
 referenceToQualTypeName :: ModulePrefix -> TR.TypeRef -> QualTypeName
 referenceToQualTypeName _ (TR.ReferenceToExternalType absPath tn) =
-    prefixToQualTypeName (pathToPrefix absPath) (Just $ capitalise tn)
+    prefixToQualTypeName (pathToPrefix absPath) (Just $ pascal $ tn)
 referenceToQualTypeName _ (TR.ReferenceToPrimitiveType s) = s
 referenceToQualTypeName prefix (TR.ReferenceToLocalType fieldName tn) =
-    prefixToQualTypeName (fieldName : prefix) (Just $ capitalise tn)
+    prefixToQualTypeName (fieldName : prefix) (Just $ pascal $ tn)
 
 -- | Converts type reference as in 'Data.TransportTypes.TypeRep' to non-qualified type name exported be corresponding module
 referenceToTypeName :: TR.TypeRef -> TR.TypeName
-referenceToTypeName (TR.ReferenceToExternalType _ tn) = capitalise tn
+referenceToTypeName (TR.ReferenceToExternalType _ tn) = pascal $ tn
 referenceToTypeName (TR.ReferenceToPrimitiveType s)   = s
-referenceToTypeName (TR.ReferenceToLocalType _ tn)    = capitalise tn
+referenceToTypeName (TR.ReferenceToLocalType _ tn)    = pascal $ tn
 
 -- | Converts type reference as in 'Data.TransportTypes.TypeRep' to qualified module name. Returns 'Nothing' in case of primitive type
 referenceToModuleName :: ModulePrefix -> TR.TypeRef -> Maybe ModuleName
 referenceToModuleName _ (TR.ExtRef tr) = nonLocalReferenceToModuleName tr
 referenceToModuleName prefix (TR.LocRef (TR.LocalReference s _)) =
-    Just $ mconcat . reverse . intersperse "." $ capitalise s : prefix
+    Just $ mconcat . reverse . intersperse "." $ (pascal $ s) : prefix
 
 -- | Converts non-local type reference as in 'Data.TransportTypes.TypeRep' to qualified module name. Returns 'Nothing' in case of primitive type
 nonLocalReferenceToModuleName :: TR.NonLocalRef -> Maybe ModuleName
@@ -92,12 +92,12 @@ nonLocalReferenceToModuleName (TR.RefExternalType absPath _) =
 nonLocalReferenceToQualTypeName :: TR.NonLocalRef -> QualTypeName
 nonLocalReferenceToQualTypeName (TR.RefPrimitiveType s) = s
 nonLocalReferenceToQualTypeName (TR.RefExternalType absPath tn) =
-    prefixToTypeName (pathToPrefix absPath) (Just $ capitalise tn)
+    prefixToTypeName (pathToPrefix absPath) (Just $ pascal $ tn)
 
 -- | Extracts non-qualified type name from title and path to corresponding module
 typeNameFromAbsolutePath :: FilePath -> Maybe Title -> TR.TypeName
 typeNameFromAbsolutePath fp Nothing     = takeBaseName (fp & dropExtension)
-typeNameFromAbsolutePath _ (Just title) = capitalise title
+typeNameFromAbsolutePath _ (Just title) = pascal $ title
 
 -- | Translates some of haskell's keywords to something less harmful for compilation process. Usually by prepending "_" and appeinding "\'". If the word is not harmful functions as 'id'
 changeReservedNames :: String -> String
@@ -113,7 +113,7 @@ changeReservedNamesBack "_type'"    = "type"
 changeReservedNamesBack "_data'"    = "data"
 changeReservedNamesBack "_module'"  = "module"
 changeReservedNamesBack "_default'" = "default"
-changeReservedNamesBack x         = x
+changeReservedNamesBack x           = x
 
 -- | Translates string to pascal case.
 fieldNameToSumCon :: FieldName -> String
@@ -125,7 +125,7 @@ fieldNameToPatName = (++ "'")
 
 -- | Extracts name from string and title
 chooseName :: FieldName -> Maybe Title -> TR.TypeName
-chooseName fn m_title = capitalise $ fromMaybe fn m_title
+chooseName fn m_title = fromMaybe fn m_title
 
 -- | Prepending "un" to typename. Used for getters in newtypes.
 getterName :: TR.TypeName -> FieldName
@@ -165,4 +165,41 @@ defaultImportNames =
     , "Data.Bifunctor"
     , "Prelude"
     , "Data.Foldable"
+    , "Data.TransportTypes.Utils"
     ]
+
+-- | Constant for import in Spec.hs
+specImports :: [String]
+specImports = ["Test.QuickCheck", "Data.TransportTypes.FFI", "System.ProgressBar"]
+
+-- | Constant for imports in each test
+perTestImports :: [String]
+perTestImports =
+    [ "Test.QuickCheck"
+    , "Test.QuickCheck.Instances"
+    , "Test.QuickCheck.Monadic"
+    , "Generic.Random"
+    , "GHC.Generics"
+    , "Data.Yaml"
+    , "Data.Aeson"
+    , "System.IO"
+    , "System.Directory"
+    , "Data.Maybe"
+    , "Data.ByteString.UTF8"
+    , "Data.Text"
+    , "Data.ByteString"
+    , "Data.ByteString.Lazy"
+    , "Data.TransportTypes.FFI"
+    , "Control.Exception"
+    , "Codec.Binary.UTF8.String"
+    , "Data.TransportTypes.CodeGen.NamingUtils"
+    ]
+
+replaceOneOf :: String -> String
+replaceOneOf = T.unpack . T.replace "oneOf:" "anyOf:" . T.pack
+
+dropAdditionalPropertiesField :: String -> String
+dropAdditionalPropertiesField =
+    T.unpack .
+    T.replace "additionalProperties: true" "" .
+    T.replace "additionalProperties: false" "" . T.pack

@@ -18,11 +18,11 @@ import           Data.Bifunctor (bimap)
 import           Data.String    (fromString)
 import qualified Data.Text      as T
 
-import GHC.SourceGen (App ((@@)), BVar (bvar), ConDecl', Field, HasList (list), HsDecl',
+import GHC.SourceGen (App ((@@)), BVar (bvar), ConDecl', Field, HasList (list, nil), HsDecl',
                       HsModule', HsType', RawMatch, Var (var), case', conP, data', field,
                       funBind, funBinds, import', instance', lambda, let', match, matchGRHSs,
                       module', newtype', op, prefixCon, qualified', recordCon, rhs, strict,
-                      string, tuple, tyApp, valBind, where', wildP)
+                      string, tuple, tyApp, valBind, where', wildP, HsExpr')
 
 import           Control.Monad.Reader              (Reader, asks, runReader)
 import           Data.Text.Encoding                (decodeUtf8)
@@ -76,32 +76,17 @@ buildModule Payload {..} prefix =
         exports = Nothing
         defaultImports = qualified' . import' . fromString <$> U.defaultImportNames
         locals = qualified' . import' . fromString <$> gatherLocalImports prefix typeRep
-        specialDerivImports =
-            qualified' . import' . fromString <$>
-            case typeRep of
-                TR.AnyOfType _ -> ["Data.TransportTypes.Deriv"]
-                _else          -> []
      in module'
             (Just . fromString $ U.prefixToModuleName prefix)
             exports
-            (extImports <> locals <> defaultImports <> [U.hidingPrelude] <> specialDerivImports)
+            (extImports <> locals <> defaultImports <> [U.hidingPrelude])
             (tDecl : instances)
   where
     qualTypename :: TR.TypeName
     qualTypename = U.prefixToQualTypeName prefix title
     typename = U.typenameFromQualTypeName qualTypename
     tDecl = runReader (buildTypeDecl typeRep) (prefix, qualTypename)
-    instances =
-        case typeRep of
-            TR.ProdType _  -> [buildToJSONInstance typename typeRep]
-            TR.SumType _   -> [buildToJSONInstance typename typeRep]
-            TR.Const _     -> [buildToJSONInstance typename typeRep]
-            TR.OneOf _     -> [buildToJSONInstance typename typeRep]
-            TR.NewType _   -> [buildToJSONInstance typename typeRep]
-            TR.ArrayType _ -> [buildToJSONInstance typename typeRep]
-            TR.Ref _       -> [buildToJSONInstance typename typeRep]
-            TR.AllOfType _ -> [buildToJSONInstance typename typeRep]
-            _other         -> []
+    instances = [buildToJSONInstance typename typeRep]
 
 transformField :: U.ModulePrefix -> TR.Field -> Field
 transformField prefix (TR.Field req tr) =
@@ -125,7 +110,7 @@ buildTypeDecl (TR.AnyOfType set) = do
             (fromString typename)
             []
             [prefixCon (fromString typename) fields]
-            (U.aofDerivingClause typename)
+            U.minDerivingClause
 buildTypeDecl (TR.AllOfType set) = do
     typename <- askTypename
     prefix <- askModulePrefix
@@ -218,6 +203,7 @@ buildToJSONInstance typename (TR.ProdType map') =
         conP (fromString typename) $ bvar . fromString . U.fieldNameToPatName <$> Map.keys map'
     objectCntr = var "Data.Yaml.object" @@ (var "Data.Maybe.catMaybes" @@ list pairs)
       where
+        tupling :: String -> HsExpr'
         tupling key = lambda [bvar "x"] (tuple [string key, var "Data.Yaml.toJSON" @@ var "x"])
         myabeWrap req nm =
             let k = (fromString $ U.fieldNameToPatName nm)
@@ -249,11 +235,61 @@ buildToJSONInstance typename (TR.OneOf map') =
   where
     mkClause :: TR.FieldName -> TR.SumConstr -> RawMatch
     mkClause optName (TR.SumConstr flds)
-        | [] <- flds = match [wildP] $ string optName
+        | [] <- flds = match [wildP] $ var "Data.Yaml.Null"
         | otherwise =
             match [conP (fromString . U.fieldNameToSumCon $ optName) [bvar "x"]] $
             var "Data.Yaml.toJSON" @@ var "x"
-buildToJSONInstance _ (TR.AnyOfType _) = undefined
+buildToJSONInstance typename (TR.AnyOfType set')
+    | Set.null set' =
+        instance'
+            (var "Data.Yaml.ToJSON" @@ var (fromString typename))
+            [funBind "toJSON" $ match [bvar "x"] (var . fromString $ typename)]
+    | Set.size set' == 1 =
+        instance'
+            (var "Data.Yaml.ToJSON" @@ var (fromString typename))
+            [ funBind "toJSON" $
+              match [conP (fromString typename) [bvar "x"]] (var "Data.Yaml.toJSON" @@ var "x")
+            ]
+    | otherwise = instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename)) [decl]
+  where
+    bindNames = (\n -> "part" ++ show n) <$> [1 .. Set.size set']
+    patternMatch = conP (fromString typename) $ bvar . fromString <$> bindNames
+    decl =
+        funBind "toJSON" $
+        matchGRHSs [patternMatch] $
+        rhs
+            (let' [valBind "parts" existingParts] $
+             case'
+                 (var "parts")
+                 [ match [nil] $ var "Data.Yaml.Null"
+                 , match
+                       [wildP]
+                        (var "Data.Foldable.foldl'" @@ var "merge" @@
+                         (var "Prelude.head" @@ var "parts") @@
+                         (var "Prelude.tail" @@ var "parts"))
+                 ]) `where'`
+        [mergeFunc]
+      where
+        existingParts = var "Data.Maybe.catMaybes" @@ list parts
+        parts =
+            (\bnm -> var "Prelude.fmap" @@ var "Data.Yaml.toJSON" @@ (var . fromString $ bnm)) <$>
+            bindNames
+        mergeFunc =
+            funBinds
+                "merge"
+                [ match
+                      [ conP "Data.Yaml.Object" [bvar "lo"]
+                      , conP "Data.Yaml.Object" [bvar "ro"]
+                      ] $
+                  var "Data.Yaml.Object" @@ op (var "ro") "Prelude.<>" (var "lo")
+                , match
+                      [bvar "lv", bvar "rv"]
+                      (case'
+                           (op (var "lv") "Prelude.==" (var "rv"))
+                           [ match [bvar "Prelude.True"] (var "lv")
+                           , match [bvar "Prelude.False"] (var "Data.Yaml.Null")
+                           ])
+                ]
 buildToJSONInstance typename (TR.AllOfType set)
     | Set.null set =
         instance'
@@ -274,9 +310,11 @@ buildToJSONInstance typename (TR.AllOfType set)
         rhs
             (let'
                  [ valBind "objs" $
-                   list ((\n -> var "Data.Yaml.toJSON" @@ (var . fromString $ n)) <$> bindNames)
+                   list
+                       ((\n -> var "Data.Yaml.toJSON" @@ (var . fromString $ n)) <$> bindNames)
                  ]
-                 (var "Data.Foldable.foldl'" @@ var "merge" @@ (var "Prelude.head" @@ var "objs") @@
+                 (var "Data.Foldable.foldl'" @@ var "merge" @@
+                  (var "Prelude.head" @@ var "objs") @@
                   (var "Prelude.tail" @@ var "objs"))) `where'`
         [ funBinds
               "merge"

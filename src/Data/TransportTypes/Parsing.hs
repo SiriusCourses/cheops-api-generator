@@ -100,8 +100,8 @@ parseDispatch obj = do
   where
     failOrJsTypeTag :: Parser JS.TypeTag
     failOrJsTypeTag = do
-        (maybeJsTypeTag :: Maybe JS.TypeTag) <-
-            JS.parseTypeTag <$> (obj .:? "type" .!= "object")
+        (tagRaw :: String) <- obj .:? "type" .!= "null"
+        let (maybeJsTypeTag :: Maybe JS.TypeTag) = JS.parseTypeTag tagRaw
         maybe (fail $ "Found incorect type here: " ++ show obj) return maybeJsTypeTag
     retrieveCachedInclude ::
            Maybe U.Title
@@ -219,7 +219,7 @@ parsePrimitve enc typeTag maybeTitle tInfo = do
             JS.PrimIntTag    -> fromMaybe "Prelude.Int" tInfo
             JS.PrimDoubleTag -> fromMaybe "Data.Scientific.Scientific" tInfo
             JS.PrimBoolTag   -> "Prelude.Bool"
-            JS.PrimNullTag   -> "()"
+            JS.PrimNullTag   -> "Data.TransportTypes.Utils.UnitProxy"
 
 parseRecordLike :: Object -> JS.RecordLikeTag -> Maybe U.Title -> StatefulParser ModuleParts
 parseRecordLike obj typeTag title = do

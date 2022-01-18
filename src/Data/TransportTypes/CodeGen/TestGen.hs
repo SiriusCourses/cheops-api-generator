@@ -8,8 +8,8 @@ import qualified Data.Text   as T
 
 import           GHC.SourceGen (App ((@@)), BVar (bvar), HasTuple (unit), HsModule', Var (var),
                                 case', conP, do', funBind, import', instance', int, match,
-                                module', qualified', recordUpd, stmt, string, typeSig, (-->),
-                                (<--), strictP)
+                                module', qualified', recordUpd, stmt, strictP, string, typeSig,
+                                (-->), (<--))
 import qualified GHC.SourceGen as GCH.SG
 
 import           Data.List                               (intersperse)
@@ -18,36 +18,12 @@ import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import           Data.TransportTypes.CodeGen.TypeGen     (gatherLocalImports)
 import qualified Data.TransportTypes.TypeRep             as TR
 
-perTestImports :: [String]
-perTestImports =
-    [ "Test.QuickCheck"
-    , "Test.QuickCheck.Instances"
-    , "Test.QuickCheck.Monadic"
-    , "Generic.Random"
-    , "GHC.Generics"
-    , "Data.Yaml"
-    , "Data.Aeson"
-    , "System.IO"
-    , "System.Directory"
-    , "Data.Maybe"
-    , "Data.ByteString.UTF8"
-    , "Data.Text"
-    , "Data.ByteString"
-    , "Data.ByteString.Lazy"
-    , "Data.TransportTypes.FFI"
-    , "Control.Exception"
-    , "Codec.Binary.UTF8.String"
-    ]
-
-specImports :: [String]
-specImports = ["Test.QuickCheck", "Data.TransportTypes.FFI", "System.ProgressBar"]
-
 buildSpec :: [FilePath] -> HsModule'
 buildSpec paths =
     module'
         Nothing
         Nothing
-        (qualified' . import' . fromString <$> imports <> specImports)
+        (qualified' . import' . fromString <$> imports <> U.specImports)
         [mainSig, mainDef]
   where
     imports = U.prefixToModuleName . U.pathToPrefix <$> paths
@@ -91,7 +67,7 @@ buildTest Payload {..} prefix =
         locals = U.testNameFromModuleName <$> gatherLocalImports prefix typeRep
         imports =
             qualified' . import' . fromString <$>
-            tgtModuleName : perTestImports <> extImports <> locals
+            tgtModuleName : U.perTestImports <> extImports <> locals
         exports = Nothing
      in module'
             (Just . fromString $ testModuleName)
@@ -114,6 +90,9 @@ buildTest Payload {..} prefix =
         testBdy =
             var "Test.QuickCheck.Monadic.monadicIO" @@
             do'
+                  {-stmt $
+                  var "Test.QuickCheck.Monadic.run" @@
+                  (var "putStrLn" @@ string ("Testing: " ++ qualTypename)) ,-}
                 [ strictP (bvar "recScheme") <-- var "Test.QuickCheck.Monadic.run" @@
                   decodeEncode "scheme" (var "rawScheme")
                 , strictP (bvar "recSample") <-- var "Test.QuickCheck.Monadic.run" @@
@@ -179,4 +158,9 @@ buildTest Payload {..} prefix =
     rawSchemeLitSig = typeSig rawSchemeLitName $ var "Data.ByteString.ByteString"
     rawSchemeLit =
         funBind rawSchemeLitName $
-        match [] (var "Data.ByteString.UTF8.fromString" @@ string (T.unpack json))
+        match
+            []
+            (var "Data.ByteString.UTF8.fromString" @@
+             (var "Data.TransportTypes.CodeGen.NamingUtils.dropAdditionalPropertiesField" @@
+              (var "Data.TransportTypes.CodeGen.NamingUtils.replaceOneOf" @@
+               string (T.unpack json))))

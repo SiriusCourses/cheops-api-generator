@@ -32,25 +32,27 @@ eventsFromFile (RepositoryRoot crr) = go [] []
     go injectedEvents seen fp = do
         cfp <- liftIO $ handleNotFound $ canonicalizePath =<< rerootPath Nothing fp
         when (cfp `elem` seen) $ liftIO $ throwIO CyclicIncludes
-        Y.decodeFile cfp .| additionalPropertiesNoticer .| conduitInjector injectedEvents .| do
-            awaitForever $ \event ->
-                case event of
-                    EventScalar f (UriTag "!include") _ _ -> do
-                        includeFile <-
-                            liftIO $
-                            canonicalizePath =<<
-                            rerootPath (Just $ takeDirectory cfp) (T.unpack (T.decodeUtf8 f))
-                        let injectedEvents' =
-                                [ EventScalar "haskell/origin" NoTag Plain Nothing
-                                , EventScalar
-                                      (T.encodeUtf8 . T.pack $ includeFile)
-                                      NoTag
-                                      Plain
-                                      Nothing
-                                ]
-                        go injectedEvents' (cfp : seen) includeFile .|
-                            CL.filter (`notElem` irrelevantEvents)
-                    _ -> yield event
+        Y.decodeFile cfp .| conduitInjector injectedEvents .|
+            (do awaitForever $ \event ->
+                    case event of
+                        EventScalar f (UriTag "!include") _ _ -> do
+                            includeFile <-
+                                liftIO $
+                                canonicalizePath =<<
+                                rerootPath
+                                    (Just $ takeDirectory cfp)
+                                    (T.unpack (T.decodeUtf8 f))
+                            let injectedEvents' =
+                                    [ EventScalar "haskell/origin" NoTag Plain Nothing
+                                    , EventScalar
+                                          (T.encodeUtf8 . T.pack $ includeFile)
+                                          NoTag
+                                          Plain
+                                          Nothing
+                                    ]
+                            go injectedEvents' (cfp : seen) includeFile .|
+                                CL.filter (`notElem` irrelevantEvents)
+                        _ -> yield event)
     irrelevantEvents = [EventStreamStart, EventDocumentStart, EventDocumentEnd, EventStreamEnd]
     rerootPath :: Maybe FilePath -> FilePath -> IO FilePath
     rerootPath curDir' fp'
@@ -92,22 +94,22 @@ eventsFromFile (RepositoryRoot crr) = go [] []
                 yield one'
                 -- recourse on yourself
                 conduitInjector els
-    additionalPropertiesNoticer :: (Monad m) => ConduitM Event Event m ()
-    additionalPropertiesNoticer = do
-        one <- await
-        two <- await
-        three <- await
-        case (one, two) of
-            (Nothing, _) -> return ()
-            (Just one', Nothing) -> do
-                yield one'
-                return ()
-            (Just (EventScalar "additionalProperties" _ _ _), _) ->
-                case three of
-                    Nothing -> return ()
-                    Just three' -> do
-                        yield three'
-                        additionalPropertiesNoticer
-            _ -> do
-                traverse_ yield $ catMaybes [one, two, three]
-                additionalPropertiesNoticer
+    -- additionalPropertiesNoticer :: (Monad m) => ConduitM Event Event m ()
+    -- additionalPropertiesNoticer = do
+    --     one <- await
+    --     two <- await
+    --     three <- await
+    --     case (one, two) of
+    --         (Nothing, _) -> return ()
+    --         (Just one', Nothing) -> do
+    --             yield one'
+    --             return ()
+    --         (Just (EventScalar "additionalProperties" _ _ _), _) ->
+    --             case three of
+    --                 Nothing -> return ()
+    --                 Just three' -> do
+    --                     yield three'
+    --                     additionalPropertiesNoticer
+    --         _ -> do
+    --             traverse_ yield $ catMaybes [one, two, three]
+    --             additionalPropertiesNoticer
