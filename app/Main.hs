@@ -32,7 +32,6 @@ import           Data.TransportTypes.Parsing.IncludeInjection (RepositoryRoot (.
                                                                eventsFromFile)
 import qualified Data.TransportTypes.TypeRep                  as TR
 import qualified System.ProgressBar                           as PB
-import           Text.Casing                                  (camel)
 import           Util                                         (singleton)
 
 collectFiles :: FilePath -> IO [FilePath]
@@ -80,7 +79,7 @@ main = do
                              mempty)
                         mempty
             let acc =
-                    transformStrings (camel . dashesToUnderscore) . postprocessParserResult $
+                    transformStrings dashesToUnderscore . postprocessParserResult $
                     foldl' combineParserResults ini res
             when chDebug $ putStrLn "-- accumulated files"
             when chDebug $ traverse_ (print . fst) $ deps acc
