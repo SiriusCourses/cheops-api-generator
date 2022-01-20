@@ -24,12 +24,15 @@ import           Data.TransportTypes.Parsing (ParserResult (..), dashesToUndersc
                                               postprocessParserResult, transformStrings)
 
 import           Conduit                                      (liftIO)
+import           Data.Conduit                                 ((.|))
 import           Data.Either                                  (fromRight, isLeft, isRight,
                                                                lefts)
 import           Data.Maybe                                   (fromJust, isJust)
 import           Data.TransportTypes.ModuleParts              (ModuleParts (..))
 import           Data.TransportTypes.Parsing.IncludeInjection (RepositoryRoot (..),
-                                                               eventsFromFile)
+                                                               additionalPropertiesDropper,
+                                                               eventsFromFile,
+                                                               itemCountDropper)
 import qualified Data.TransportTypes.TypeRep                  as TR
 import qualified System.ProgressBar                           as PB
 import           Util                                         (singleton)
@@ -54,8 +57,10 @@ main = do
                traverse
                    (\f -> do
                         res <-
-                            decodeHelper @ParserResult . eventsFromFile (RepositoryRoot crr) $
-                            f
+                            decodeHelper @ParserResult $
+                            (eventsFromFile (RepositoryRoot crr) f .|
+                             additionalPropertiesDropper .|
+                             itemCountDropper)
                         liftIO $ PB.incProgress pb 1
                         return res)
                    files
