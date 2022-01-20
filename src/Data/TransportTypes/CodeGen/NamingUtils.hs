@@ -10,10 +10,9 @@ import Data.Maybe    (fromMaybe)
 
 import qualified Data.TransportTypes.TypeRep as TR
 
--- import qualified Data.Text       as T
-import           System.FilePath (dropExtension, replaceFileName, takeBaseName, (<.>), (</>))
-import           Text.Casing     (pascal)
-import           Util            (split)
+import System.FilePath (dropExtension, replaceFileName, takeBaseName, (<.>), (</>))
+import Text.Casing     (pascal)
+import Util            (split)
 
 type ModulePrefix = [String]
 
@@ -31,22 +30,22 @@ unnamed = "Unnamed"
 
 -- | Appends capitalised name as head to prefix
 updatePrefix :: FieldName -> ModulePrefix -> ModulePrefix
-updatePrefix fieldName prefix = (pascal $ fieldName) : prefix
+updatePrefix fieldName prefix = pascal fieldName : prefix
 
 -- | Converts path to haskell module to qualified module name
 pathToPrefix :: FilePath -> ModulePrefix
 pathToPrefix []   = [unnamed]
-pathToPrefix path = reverse . fmap (pascal) . split '/' $ path & dropExtension
+pathToPrefix path = reverse . fmap pascal . split '/' $ path & dropExtension
 
 -- | Converts prefix to qualified module name
 prefixToModuleName :: ModulePrefix -> ModuleName
-prefixToModuleName prefix = mconcat . reverse . intersperse "." $ (pascal) <$> prefix
+prefixToModuleName prefix = mconcat . reverse . intersperse "." $ pascal <$> prefix
 
 -- | Converts prefix and title to qualified type name which is exported by correspondnig module
 prefixToQualTypeName :: ModulePrefix -> Maybe Title -> QualTypeName
 prefixToQualTypeName p@(s:_) tn =
-    mconcat . reverse . intersperse "." $ (pascal) <$> fromMaybe s tn : p
-prefixToQualTypeName [] (Just tn) = unnamed ++ "." ++ (pascal $ tn)
+    mconcat . reverse . intersperse "." $ pascal <$> fromMaybe s tn : p
+prefixToQualTypeName [] (Just tn) = unnamed ++ "." ++ pascal tn
 prefixToQualTypeName [] Nothing = unnamed ++ "." ++ unnamed
 
 -- | Converts qualified typename to unqualified one
@@ -65,22 +64,22 @@ prefixToPath prefix = foldl1 (</>) (reverse prefix) <.> "hs"
 -- | Converts type reference and prefix to qualified type name exported be corresponding module
 referenceToQualTypeName :: ModulePrefix -> TR.TypeRef -> QualTypeName
 referenceToQualTypeName _ (TR.ReferenceToExternalType absPath tn) =
-    prefixToQualTypeName (pathToPrefix absPath) (Just $ pascal $ tn)
+    prefixToQualTypeName (pathToPrefix absPath) (Just $ pascal tn)
 referenceToQualTypeName _ (TR.ReferenceToPrimitiveType s) = s
 referenceToQualTypeName prefix (TR.ReferenceToLocalType fieldName tn) =
-    prefixToQualTypeName (fieldName : prefix) (Just $ pascal $ tn)
+    prefixToQualTypeName (fieldName : prefix) (Just $ pascal tn)
 
 -- | Converts type reference as in 'Data.TransportTypes.TypeRep' to non-qualified type name exported be corresponding module
 referenceToTypeName :: TR.TypeRef -> TR.TypeName
-referenceToTypeName (TR.ReferenceToExternalType _ tn) = pascal $ tn
+referenceToTypeName (TR.ReferenceToExternalType _ tn) = pascal tn
 referenceToTypeName (TR.ReferenceToPrimitiveType s)   = s
-referenceToTypeName (TR.ReferenceToLocalType _ tn)    = pascal $ tn
+referenceToTypeName (TR.ReferenceToLocalType _ tn)    = pascal tn
 
 -- | Converts type reference as in 'Data.TransportTypes.TypeRep' to qualified module name. Returns 'Nothing' in case of primitive type
 referenceToModuleName :: ModulePrefix -> TR.TypeRef -> Maybe ModuleName
 referenceToModuleName _ (TR.ExtRef tr) = nonLocalReferenceToModuleName tr
 referenceToModuleName prefix (TR.LocRef (TR.LocalReference s _)) =
-    Just $ mconcat . reverse . intersperse "." $ (pascal $ s) : prefix
+    Just $ mconcat . reverse . intersperse "." $ pascal s : prefix
 
 -- | Converts non-local type reference as in 'Data.TransportTypes.TypeRep' to qualified module name. Returns 'Nothing' in case of primitive type
 nonLocalReferenceToModuleName :: TR.NonLocalRef -> Maybe ModuleName
@@ -92,12 +91,12 @@ nonLocalReferenceToModuleName (TR.RefExternalType absPath _) =
 nonLocalReferenceToQualTypeName :: TR.NonLocalRef -> QualTypeName
 nonLocalReferenceToQualTypeName (TR.RefPrimitiveType s) = s
 nonLocalReferenceToQualTypeName (TR.RefExternalType absPath tn) =
-    prefixToTypeName (pathToPrefix absPath) (Just $ pascal $ tn)
+    prefixToTypeName (pathToPrefix absPath) (Just $ pascal tn)
 
 -- | Extracts non-qualified type name from title and path to corresponding module
 typeNameFromAbsolutePath :: FilePath -> Maybe Title -> TR.TypeName
 typeNameFromAbsolutePath fp Nothing     = takeBaseName (fp & dropExtension)
-typeNameFromAbsolutePath _ (Just title) = pascal $ title
+typeNameFromAbsolutePath _ (Just title) = pascal title
 
 -- | Translates some of haskell's keywords to something less harmful for compilation process. Usually by prepending "_" and appeinding "\'". If the word is not harmful functions as 'id'
 changeReservedNames :: String -> String
@@ -125,7 +124,7 @@ fieldNameToPatName = (++ "'")
 
 -- | Extracts name from string and title
 chooseName :: FieldName -> Maybe Title -> TR.TypeName
-chooseName fn m_title = fromMaybe fn m_title
+chooseName = fromMaybe
 
 -- | Prepending "un" to typename. Used for getters in newtypes.
 getterName :: TR.TypeName -> FieldName
@@ -165,6 +164,7 @@ defaultImportNames =
     , "Data.Bifunctor"
     , "Prelude"
     , "Data.Foldable"
+    , "Control.Applicative"
     , "Data.TransportTypes.Utils"
     ]
 

@@ -100,5 +100,5 @@ appendRecord fieldName (record, req) ModuleParts {..} =
     appendToTypeRep :: TR.TypeRep -> TR.FieldName -> TR.Field -> TR.TypeRep
     appendToTypeRep (TR.ProdType km) k tr = TR.ProdType $ Map.insert k tr km
     appendToTypeRep (TR.SumType km) k tr  = TR.SumType $ Map.insert k (TR.SumConstr [tr]) km
-    appendToTypeRep (TR.OneOf km) k tr    = TR.OneOf $ Map.insert k (TR.SumConstr [tr]) km
+    appendToTypeRep (TR.OneOfType km) k tr    = TR.OneOfType $ Map.insert k (TR.SumConstr [tr]) km
     appendToTypeRep x _ _                 = x

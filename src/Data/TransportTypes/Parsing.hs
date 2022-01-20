@@ -134,7 +134,7 @@ parseConst obj = do
             (decideCnstTitle title cnst)
             mempty
             mempty
-            (TR.Const cnst)
+            (TR.ConstType cnst)
             (decodeUtf8 . encode $ obj)
   where
     decideCnstTitle :: Maybe U.Title -> Value -> Maybe U.Title
@@ -149,7 +149,7 @@ parseOneOf obj = do
         Map.map (, True) . Map.fromList . zip (fmap (\n -> "Option" ++ show n) [1 :: Int ..]) <$>
         (traverse parseDispatch =<< lift (obj .: "oneOf"))
     title <- lift $ obj .:? "title"
-    let ini = ModuleParts title mempty mempty (TR.OneOf mempty) (decodeUtf8 . encode $ obj)
+    let ini = ModuleParts title mempty mempty (TR.OneOfType mempty) (decodeUtf8 . encode $ obj)
     return $ Map.foldrWithKey MP.appendRecord ini options
 
 parseAnyOf :: Object -> StatefulParser ModuleParts
@@ -276,7 +276,7 @@ postprocessParserResult (ParserResult mp incs) =
     go mp'
         | TR.ProdType km <- tr = mpu' & declaration .~ TR.ProdType (mapField <$> km)
         | TR.SumType km <- tr = mpu' & declaration .~ TR.SumType (fmap mapField <$> km)
-        | TR.OneOf km <- tr = mpu' & declaration .~ TR.OneOf (fmap mapField <$> km)
+        | TR.OneOfType km <- tr = mpu' & declaration .~ TR.OneOfType (fmap mapField <$> km)
         | TR.ArrayType tr' <- tr = mpu' & declaration .~ TR.ArrayType (mapTypeRef tr')
         | TR.NewType tr' <- tr = mpu' & declaration .~ TR.NewType (mapTypeRef tr')
         | TR.Ref nltr <- tr = mpu' & declaration .~ TR.Ref (mapNonLocalRef nltr)
@@ -319,8 +319,8 @@ transformStrings transform (ParserResult mp deps) =
         TR.ProdType $ Map.mapKeys transform . Map.map transformField $ km
     transformTypeRep (TR.SumType km) =
         TR.SumType $ Map.mapKeys transform . Map.map (fmap transformField) $ km
-    transformTypeRep (TR.OneOf km) =
-        TR.OneOf $ Map.mapKeys transform . Map.map (fmap transformField) $ km
+    transformTypeRep (TR.OneOfType km) =
+        TR.OneOfType $ Map.mapKeys transform . Map.map (fmap transformField) $ km
     transformTypeRep (TR.ArrayType tr') = TR.ArrayType $ transfromTypeRef tr'
     transformTypeRep (TR.NewType tr') = TR.NewType $ transfromTypeRef tr'
     transformTypeRep (TR.Ref (TR.RefExternalType nm tn)) =
@@ -328,7 +328,7 @@ transformStrings transform (ParserResult mp deps) =
     transformTypeRep (TR.Ref (TR.RefPrimitiveType nm)) = TR.Ref . TR.RefPrimitiveType $ nm
     transformTypeRep (TR.AnyOfType set) = TR.AnyOfType $ Set.map transfromTypeRef set
     transformTypeRep (TR.AllOfType set) = TR.AllOfType $ Set.map transfromTypeRef set
-    transformTypeRep (TR.Const v) = TR.Const v
+    transformTypeRep (TR.ConstType v) = TR.ConstType v
     transfromTypeRef :: TR.TypeRef -> TR.TypeRef
     transfromTypeRef (TR.ReferenceToLocalType s tn) =
         TR.ReferenceToLocalType (transform s) (transform tn)

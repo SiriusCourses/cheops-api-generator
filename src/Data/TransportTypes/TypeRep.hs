@@ -64,13 +64,13 @@ newtype SumConstrF a =
 data TypeRep
     = ProdType (Map FieldName Field)
     | SumType (Map FieldName SumConstr)
-    | OneOf (Map FieldName SumConstr)
+    | OneOfType (Map FieldName SumConstr)
     | AnyOfType (Set TypeRef)
     | AllOfType (Set TypeRef)
     | ArrayType TypeRef
     | NewType TypeRef
     | Ref NonLocalRef
-    | Const Value
+    | ConstType Value
     deriving (Show, Eq, Generic, Ord)
     deriving anyclass (ToJSON)
 
