@@ -19,10 +19,10 @@ import           Data.String    (fromString)
 import qualified Data.Text      as T
 
 import GHC.SourceGen (App ((@@)), BVar (bvar), ConDecl', Field, HasList (list, nil), HsDecl',
-                      HsModule', HsType', RawMatch, Var (var), case', conP, data', field,
-                      funBind, funBinds, import', instance', lambda, let', match, matchGRHSs,
-                      module', newtype', op, prefixCon, qualified', recordCon, rhs, strict,
-                      string, tuple, tyApp, valBind, where', wildP, HsExpr')
+                      HsExpr', HsModule', HsType', RawMatch, Var (var), case', conP, data',
+                      field, funBind, funBinds, import', instance', lambda, let', match,
+                      matchGRHSs, module', newtype', op, prefixCon, qualified', recordCon, rhs,
+                      strict, string, tuple, tyApp, valBind, where', wildP)
 
 import           Control.Monad.Reader              (Reader, asks, runReader)
 import           Data.Text.Encoding                (decodeUtf8)
@@ -243,12 +243,15 @@ buildToJSONInstance typename (TR.AnyOfType set')
     | Set.null set' =
         instance'
             (var "Data.Yaml.ToJSON" @@ var (fromString typename))
-            [funBind "toJSON" $ match [bvar "x"] (var . fromString $ typename)]
+            [funBind "toJSON" $ match [bvar "x"] (var . fromString $ typename)] -- maybe null is better?
     | Set.size set' == 1 =
         instance'
             (var "Data.Yaml.ToJSON" @@ var (fromString typename))
             [ funBind "toJSON" $
-              match [conP (fromString typename) [bvar "x"]] (var "Data.Yaml.toJSON" @@ var "x")
+              match
+                  [conP (fromString typename) [bvar "x"]]
+                  (case' (var "Prelude.fmap" @@ var "Data.Yaml.toJSON" @@
+                   var "x") [match [conP "Prelude.Nothing" []] $ var "Data.Yaml.Null", match [conP "Prelude.Just" [bvar "x'"]] $ var "x'"])
             ]
     | otherwise = instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename)) [decl]
   where
@@ -264,9 +267,9 @@ buildToJSONInstance typename (TR.AnyOfType set')
                  [ match [nil] $ var "Data.Yaml.Null"
                  , match
                        [wildP]
-                        (var "Data.Foldable.foldl'" @@ var "merge" @@
-                         (var "Prelude.head" @@ var "parts") @@
-                         (var "Prelude.tail" @@ var "parts"))
+                       (var "Data.Foldable.foldl'" @@ var "merge" @@
+                        (var "Prelude.head" @@ var "parts") @@
+                        (var "Prelude.tail" @@ var "parts"))
                  ]) `where'`
         [mergeFunc]
       where

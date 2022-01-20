@@ -7,9 +7,9 @@ import           Data.String (fromString)
 import qualified Data.Text   as T
 
 import           GHC.SourceGen (App ((@@)), BVar (bvar), HasTuple (unit), HsModule', Var (var),
-                                case', conP, do', funBind, import', instance', int, match,
-                                module', qualified', recordUpd, stmt, strictP, string, typeSig,
-                                (-->), (<--))
+                                case', conP, do', funBind, import', instance', int, list,
+                                match, matchGRHSs, module', op, qualified', recordUpd, rhs,
+                                stmt, strictP, string, typeSig, valBind, where', (-->), (<--))
 import qualified GHC.SourceGen as GCH.SG
 
 import           Data.List                               (intersperse)
@@ -47,6 +47,7 @@ buildSpec paths =
                          (var "Test.QuickCheck.stdArgs")
                          [ ("Test.QuickCheck.chatty", var "False")
                          , ("Test.QuickCheck.maxSuccess", int 25)
+                         , ("Test.QuickCheck.maxSize", int 50)
                          ] @@
                      var (fromString $ t ++ "." ++ testName)) <$>
                 imports
@@ -85,46 +86,82 @@ buildTest Payload {..} prefix =
     testSig =
         typeSig propName $ var (fromString qualTypename) --> var "Test.QuickCheck.Property"
     sampleName = "sample"
-    test = funBind propName $ match [bvar (fromString sampleName)] testBdy
+    test = funBind propName $ match [bvar "sample'"] testBdy
       where
         testBdy =
-            var "Test.QuickCheck.Monadic.monadicIO" @@
-            do'
-                  {-stmt $
-                  var "Test.QuickCheck.Monadic.run" @@
-                  (var "putStrLn" @@ string ("Testing: " ++ qualTypename)) ,-}
-                [ strictP (bvar "recScheme") <-- var "Test.QuickCheck.Monadic.run" @@
-                  decodeEncode "scheme" (var "rawScheme")
-                , strictP (bvar "recSample") <-- var "Test.QuickCheck.Monadic.run" @@
-                  decodeEncode "object" (var "Data.Yaml.encode" @@ var (fromString sampleName))
-                , strictP (bvar (fromString resName)) <-- var "Test.QuickCheck.Monadic.run" @@
-                  (var "Data.TransportTypes.FFI.validateJSON" @@ var "recSample" @@
-                   var "recScheme")
-                , stmt $
-                  case'
-                      (var (fromString resName))
-                      [ match [bvar "True"] $ var "return" @@ unit
-                      , match [bvar "False"] $
-                        var "Test.QuickCheck.Monadic.run" @@
-                        do'
-                            [ stmt $ var "putStrLn" @@ string ""
-                            , stmt $ var "putStrLn" @@ string ""
-                            , stmt $
-                              var "putStrLn" @@ string ("Failed test for " ++ qualTypename)
-                            , stmt $ var "putStrLn" @@ string "sample:"
-                            , stmt $
-                              var "putStrLn" @@ (var "show" @@ var (fromString sampleName))
-                            , stmt $ var "putStrLn" @@ string "recoded sample:"
-                            , stmt $ var "putStrLn" @@ (var "show" @@ var "recSample")
-                            , stmt $ var "putStrLn" @@ string "recoded scheme:"
-                            , stmt $
-                              var "putStrLn" @@
-                              (var "Codec.Binary.UTF8.String.decode" @@
-                               (var "Data.ByteString.unpack" @@ var "recScheme"))
-                            ]
-                      ]
-                , assertTrue
-                ]
+            let precondition =
+                    case typeRep of
+                        TR.AnyOfType set' ->
+                            let bindNames = (\n -> "part" ++ show n) <$> [1 .. Set.size set']
+                                patternMatch =
+                                    conP (fromString qualTypename) $
+                                    bvar . fromString <$> bindNames
+                             in case'
+                                    (var "sample'")
+                                    [ match [patternMatch] $
+                                      var "Prelude.any" @@ var "Prelude.id" @@
+                                      list
+                                          ((var "Data.Maybe.isJust" @@) . var . fromString <$>
+                                           bindNames)
+                                    ]
+                        _ -> var "Prelude.True"
+             in var "Test.QuickCheck.Monadic.monadicIO" @@
+                do'
+                    [ stmt $ var "Test.QuickCheck.Monadic.pre" @@ precondition
+                    -- , stmt $
+                    --   var "Test.QuickCheck.Monadic.run" @@
+                    --   (var "putStrLn" @@ string (">>> Testing: " ++ qualTypename))
+                    -- , stmt $
+                    --   var "Test.QuickCheck.Monadic.run" @@
+                    --   (var "putStrLn" @@ string "getting scheme")
+                    , strictP (bvar "recScheme") <-- var "Test.QuickCheck.Monadic.run" @@
+                      decodeEncode "scheme" (var "rawScheme")
+                    -- , stmt $
+                    --   var "Test.QuickCheck.Monadic.run" @@
+                    --   (var "putStrLn" @@ string "sampling sample")
+                    , bvar (fromString sampleName) <-- var "Test.QuickCheck.Monadic.run" @@
+                      case' (var "sample'") [match [bvar "s"] $ var "pure" @@ var "s"]
+                    -- , stmt $
+                    --   var "Test.QuickCheck.Monadic.run" @@
+                    --   (var "putStrLn" @@ string "encoding-decoding sample")
+                    , strictP (bvar "recSample") <-- var "Test.QuickCheck.Monadic.run" @@
+                      decodeEncode
+                          "object"
+                          (var "Data.Yaml.encode" @@ var (fromString sampleName))
+                    -- , stmt $
+                    --   var "Test.QuickCheck.Monadic.run" @@
+                    --   (var "putStrLn" @@ string "validating")
+                    , strictP (bvar (fromString resName)) <-- var "Test.QuickCheck.Monadic.run" @@
+                      (var "Data.TransportTypes.FFI.validateJSON" @@ var "recSample" @@
+                       var "recScheme")
+                    -- , stmt $
+                    --   var "Test.QuickCheck.Monadic.run" @@
+                    --   (var "putStrLn" @@ string "inspecting result")
+                    , stmt $
+                      case'
+                          (var (fromString resName))
+                          [ match [bvar "True"] $ var "return" @@ unit
+                          , match [bvar "False"] $
+                            var "Test.QuickCheck.Monadic.run" @@
+                            do'
+                                [ stmt $ var "putStrLn" @@ string ""
+                                , stmt $ var "putStrLn" @@ string ""
+                                , stmt $
+                                  var "putStrLn" @@ string ("Failed test for " ++ qualTypename)
+                                , stmt $ var "putStrLn" @@ string "sample:"
+                                , stmt $
+                                  var "putStrLn" @@ (var "show" @@ var (fromString sampleName))
+                                , stmt $ var "putStrLn" @@ string "recoded sample:"
+                                , stmt $ var "putStrLn" @@ (var "show" @@ var "recSample")
+                                , stmt $ var "putStrLn" @@ string "recoded scheme:"
+                                , stmt $
+                                  var "putStrLn" @@
+                                  (var "Codec.Binary.UTF8.String.decode" @@
+                                   (var "Data.ByteString.unpack" @@ var "recScheme"))
+                                ]
+                          ]
+                    , assertTrue
+                    ]
           where
             resName = "res"
             decodeEncode msg x =
@@ -158,9 +195,15 @@ buildTest Payload {..} prefix =
     rawSchemeLitSig = typeSig rawSchemeLitName $ var "Data.ByteString.ByteString"
     rawSchemeLit =
         funBind rawSchemeLitName $
-        match
-            []
+        matchGRHSs [] $
+        rhs
             (var "Data.ByteString.UTF8.fromString" @@
-             (var "Data.TransportTypes.CodeGen.NamingUtils.dropAdditionalPropertiesField" @@
-              (var "Data.TransportTypes.CodeGen.NamingUtils.replaceOneOf" @@
-               string (T.unpack json))))
+             (var "replaceOneOf" @@ string (T.unpack json))) `where'`
+        [ valBind "replaceOneOf" $
+          foldr1
+              (`op` ".")
+              [ var "Data.Text.unpack"
+              , var "Data.Text.replace" @@ string "oneOf:" @@ string "anyOf:"
+              , var "Data.Text.pack"
+              ]
+        ]

@@ -17,7 +17,6 @@ import           Conduit           (MonadIO (liftIO), MonadResource, await)
 import           Data.Conduit      (ConduitM, awaitForever, yield, (.|))
 import qualified Data.Conduit.List as CL
 
-import Data.Maybe       (catMaybes)
 import System.Directory (canonicalizePath, doesFileExist)
 import System.FilePath  (isAbsolute, joinPath, splitPath, takeDirectory, (</>))
 import System.IO.Error  (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
@@ -94,22 +93,30 @@ eventsFromFile (RepositoryRoot crr) = go [] []
                 yield one'
                 -- recourse on yourself
                 conduitInjector els
-    -- additionalPropertiesNoticer :: (Monad m) => ConduitM Event Event m ()
-    -- additionalPropertiesNoticer = do
-    --     one <- await
-    --     two <- await
-    --     three <- await
-    --     case (one, two) of
-    --         (Nothing, _) -> return ()
-    --         (Just one', Nothing) -> do
-    --             yield one'
-    --             return ()
-    --         (Just (EventScalar "additionalProperties" _ _ _), _) ->
-    --             case three of
-    --                 Nothing -> return ()
-    --                 Just three' -> do
-    --                     yield three'
-    --                     additionalPropertiesNoticer
-    --         _ -> do
-    --             traverse_ yield $ catMaybes [one, two, three]
-    --             additionalPropertiesNoticer
+
+additionalPropertiesDropper :: (Monad m) => ConduitM Event Event m ()
+additionalPropertiesDropper = do
+    one <- await
+    case one of
+        Nothing -> return ()
+        Just (EventScalar "additionalProperties" _ _ _) -> do
+            _ <- await
+            additionalPropertiesDropper
+        Just one' -> do
+            yield one'
+            additionalPropertiesDropper
+
+itemCountDropper :: (Monad m) => ConduitM Event Event m ()
+itemCountDropper = do
+    one <- await
+    case one of
+        Nothing -> return ()
+        Just (EventScalar "minItems" _ _ _) -> do
+            _ <- await
+            itemCountDropper
+        Just (EventScalar "maxItems" _ _ _) -> do
+            _ <- await
+            itemCountDropper
+        Just one' -> do
+            yield one'
+            itemCountDropper

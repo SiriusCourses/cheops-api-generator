@@ -10,7 +10,7 @@ import Data.Maybe    (fromMaybe)
 
 import qualified Data.TransportTypes.TypeRep as TR
 
-import qualified Data.Text       as T
+-- import qualified Data.Text       as T
 import           System.FilePath (dropExtension, replaceFileName, takeBaseName, (<.>), (</>))
 import           Text.Casing     (pascal)
 import           Util            (split)
@@ -192,14 +192,4 @@ perTestImports =
     , "Data.TransportTypes.FFI"
     , "Control.Exception"
     , "Codec.Binary.UTF8.String"
-    , "Data.TransportTypes.CodeGen.NamingUtils"
     ]
-
-replaceOneOf :: String -> String
-replaceOneOf = T.unpack . T.replace "oneOf:" "anyOf:" . T.pack
-
-dropAdditionalPropertiesField :: String -> String
-dropAdditionalPropertiesField =
-    T.unpack .
-    T.replace "additionalProperties: true" "" .
-    T.replace "additionalProperties: false" "" . T.pack
