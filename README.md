@@ -1,5 +1,15 @@
 # Transport type generation
 
+## Prerequisitions
+install stack and ghc via ghcup.
+```bash
+sudo apt-get install cmake gcc g++ curl wget
+sudo apt-get install python3-dev libgmp3-dev libtinfo-dev 
+```
+```bash
+pip install jsonschema
+```
+
 ## How to genereate types
 
 It is a must for `genereated-api` directory to be inside this project, due to dependance on `AllOf`, `AnyOf` and `OneOf` implementation from here.  
@@ -59,12 +69,15 @@ cd cbits/c_validate
 mkdir cmake-build-debug && cd cmake-build-debug
 cmake .. && make
 ```
+```bash
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/abolute/path/to/cbits/c_validate/cmake-build-debug
+```
 
 ### Building Haskell 
 
 1. Add `generated-api/src` to `library.source-dirs` in `package.yaml`
 2. Add `generated-api/test` to `tests.source-dirs` in `package.yaml`
-3. Commant out `tests.source-dirs.test` item from `package.yaml`
+3. Comment out `tests.source-dirs.test` item from `package.yaml`
 4. Optional: add `-Wno-unused-imports` and `-fno-warn-orphans` to `package.yaml`
 ```bash
 stack test
