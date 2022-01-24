@@ -1,6 +1,6 @@
 # Transport type generation
 
-## Prerequisitions
+## Prerequisite
 install stack and ghc via ghcup.
 ```bash
 sudo apt-get install cmake gcc g++ curl wget
