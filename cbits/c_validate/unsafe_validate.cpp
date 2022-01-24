@@ -26,7 +26,34 @@ jsonschema.validate(json_o, json_sch)
     return true;
 }
 
+std::string cpp_generate(const std::string& sch){
+    auto locals = py::dict("schema"_a = sch);
+    try {
+        py::exec(R"(
+from jsf import JSF
+import json
+
+json_sch = json.loads(schema)
+faker = JSF(json_sch)
+fake_json_cnt = faker.generate()
+fake_json = json.dumps(fake_json_cnt)
+    )", py::globals(), locals);
+    }
+    catch (...) {
+        return "error_inside_python_code";
+    }
+    return locals["fake_json"].cast<std::string>();
+}
+
 extern "C" {
+char* unsafe_generate(const char* schema){
+    return strdup(cpp_generate(std::string(schema)).c_str());
+}
+
+void dispose_generated_object(char* obj){
+    free(obj);
+}
+
 bool unsafe_validate(const char *o, const char *sch) {
     return cpp_validate(std::string(o), std::string(sch));
 }

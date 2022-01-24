@@ -7,6 +7,8 @@
 extern "C"{
     void start_python();
     bool unsafe_validate(const char* object, const char* scheme);
+    char* unsafe_generate(const char* scheme);
+    void dispose_generated_object(char *);
     void end_python();
 };
 
