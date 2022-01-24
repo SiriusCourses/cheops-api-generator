@@ -85,8 +85,6 @@ library:
   - src
   # - generated
   # - generated-api/src
-  extra-libraries: 
-  - c_validate
 
 executables:
   config-generation-exe:
@@ -104,6 +102,7 @@ tests:
     main:                Spec.hs
     source-dirs:         
     - test
+    - test/ffi
     # - generated-api/test
     ghc-options:
     - -threaded
@@ -111,3 +110,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - config-generation
+    extra-libraries: 
+    - c_validate
