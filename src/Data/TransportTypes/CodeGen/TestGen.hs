@@ -34,9 +34,8 @@ buildSpec paths =
         testName = "prop_encdecInv"
         mainBdy =
             do' $
-            stmt (var "Data.TransportTypes.FFI.start_python") :
-            (bvar "pb" <-- progressBar) :
-            testCalls ++ [stmt $ var "Data.TransportTypes.FFI.end_python"]
+            stmt (var "FFI.start_python") :
+            (bvar "pb" <-- progressBar) : testCalls ++ [stmt $ var "FFI.end_python"]
           where
             testCalls =
                 intersperse (stmt $ var "System.ProgressBar.incProgress" @@ var "pb" @@ int 1) $
@@ -132,8 +131,7 @@ buildTest Payload {..} prefix =
                     --   var "Test.QuickCheck.Monadic.run" @@
                     --   (var "putStrLn" @@ string "validating")
                     , strictP (bvar (fromString resName)) <-- var "Test.QuickCheck.Monadic.run" @@
-                      (var "Data.TransportTypes.FFI.validateJSON" @@ var "recSample" @@
-                       var "recScheme")
+                      (var "FFI.validateJSON" @@ var "recSample" @@ var "recScheme")
                     -- , stmt $
                     --   var "Test.QuickCheck.Monadic.run" @@
                     --   (var "putStrLn" @@ string "inspecting result")

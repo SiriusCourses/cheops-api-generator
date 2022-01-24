@@ -13,7 +13,7 @@ data TypeTag
     = Rec RecordLikeTag
     | Prim PrimitiveTag
     | ArrayTag
-    deriving Show
+    deriving (Show)
 
 {-# COMPLETE ArrayTag, StringTag, IntTag, DoubleTag, BoolTag,
   NullTag, ObjectTag, EnumTag #-}
@@ -24,12 +24,12 @@ data PrimitiveTag
     | PrimDoubleTag
     | PrimBoolTag
     | PrimNullTag
-    deriving Show
+    deriving (Show)
 
 data RecordLikeTag
     = RecEnumTag
     | RecObjectTag
-    deriving Show
+    deriving (Show)
 
 pattern ObjectTag :: TypeTag
 
@@ -60,9 +60,8 @@ pattern NullTag :: TypeTag
 pattern NullTag = Prim PrimNullTag
 
 isPrimitive :: TypeTag -> Bool
-isPrimitive ObjectTag = False
-isPrimitive ArrayTag  = False
-isPrimitive _         = True
+isPrimitive (Prim _) = True
+isPrimitive _        = False
 
 pattern Primitive :: TypeTag
 

@@ -9,10 +9,9 @@ module Data.TransportTypes.Parsing where
 import Control.Lens (makeLenses, (%~), (&), (.~), (<&>), (^.))
 
 import Data.Aeson.Types (prependFailure, typeMismatch)
-import Data.Yaml        (FromJSON (..), Object, Parser, ToJSON, Value (..), encode, (.!=),
-                         (.:), (.:?))
+import Data.Yaml        (FromJSON (..), Object, Parser, ToJSON, Value (..), encode, object,
+                         (.!=), (.:), (.:?), (.=))
 
-import           Control.Applicative        ((<|>))
 import           Control.Monad.State.Strict (MonadTrans (lift), StateT (runStateT), get,
                                              modify)
 import qualified Data.Bifunctor
@@ -28,6 +27,7 @@ import           Data.Text.Encoding         (decodeUtf8)
 import           GHC.Generics               (Generic)
 import           System.FilePath            (pathSeparator, takeBaseName, (</>))
 
+import           Data.Foldable                           (asum)
 import qualified Data.Text                               as T
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import qualified Data.TransportTypes.JSTypes             as JS
@@ -81,28 +81,21 @@ instance FromJSON ParserResult where
 
 parseDispatch :: Object -> StatefulParser ModuleParts
 parseDispatch obj = do
-    let enc = decodeUtf8 . encode $ obj
-    jsTypeTag <- lift failOrJsTypeTag
     maybeOrigin <- lift $ obj .:? "haskell/origin"
-    typeInfo <- lift $ obj .:? "haskell/type-info"
     title <- lift $ obj .:? "title"
-    m_enum <- lift $ obj .:? "enum"
-    retrieveCachedInclude title maybeOrigin $
-        parseOneOf obj <|> parseAnyOf obj <|> parseAllOf obj <|> parseConst obj <|>
-        case jsTypeTag of
-            JS.Prim tag ->
-                case (tag, m_enum) of
-                    (JS.PrimStringTag, Just (enum :: [String])) ->
-                        return $ parseStringEnum enc enum title
-                    (tag', _) -> parsePrimitve enc tag' title typeInfo
-            JS.Rec tag -> parseRecordLike obj tag title
-            JS.ArrayTag -> parseArray obj title
+    retrieveCachedInclude title maybeOrigin . asum $
+        [ parseOneOf
+        , parseAnyOf
+        , parseAllOf
+        , parseConst
+        , parseArray
+        , parseRecordLike
+        , parseEnum
+        , parsePrim
+        , parseNull
+        ] <*>
+        pure obj
   where
-    failOrJsTypeTag :: Parser JS.TypeTag
-    failOrJsTypeTag = do
-        (tagRaw :: String) <- obj .:? "type" .!= "null"
-        let (maybeJsTypeTag :: Maybe JS.TypeTag) = JS.parseTypeTag tagRaw
-        maybe (fail $ "Found incorect type here: " ++ show obj) return maybeJsTypeTag
     retrieveCachedInclude ::
            Maybe U.Title
         -> Maybe Origin
@@ -124,6 +117,68 @@ parseDispatch obj = do
                     (TR.Ref $
                      TR.RefExternalType origin (U.typeNameFromAbsolutePath origin title))
                     mempty
+
+checkType :: Object -> (Maybe JS.TypeTag -> StatefulParser a) -> StatefulParser a
+checkType object k = k . JS.parseTypeTag =<< lift (object .: "type")
+
+parseNull :: Object -> StatefulParser ModuleParts
+parseNull obj -- fail $ "No option for parsing:\n" ++ (T.unpack . decodeUtf8 . encode $  obj)
+ = do
+    (typetag :: Maybe String) <- lift $ obj .:? "type"
+    case typetag of
+        Nothing -> do
+            let enc = decodeUtf8 . encode $ obj
+            title <- lift $ obj .:? "title"
+            return $
+                ModuleParts
+                    title
+                    mempty
+                    mempty
+                    (TR.Ref $ TR.RefPrimitiveType "Data.TransportTypes.Utils.UnitProxy")
+                    enc
+        _ -> fail "This is not null"
+
+parsePrim :: Object -> StatefulParser ModuleParts
+parsePrim obj = do
+    tag <-
+        checkType obj $ \case
+            Just (JS.Prim tag) -> return tag
+            _                  -> fail "Can't parse this as a primitive"
+    title <- lift $ obj .:? "title"
+    typeInfo <- lift $ obj .:? "haskell/type-info"
+    let enc = decodeUtf8 . encode $ obj
+    return $ parsePrimitve enc tag title typeInfo
+  where
+    parsePrimitve :: Text -> JS.PrimitiveTag -> Maybe U.Title -> Maybe TypeInfo -> ModuleParts
+    parsePrimitve enc typeTag maybeTitle tInfo = ModuleParts maybeTitle mempty mempty rep enc
+      where
+        newtypeWrapper =
+            case maybeTitle of
+                Just _  -> TR.NewType . TR.ExtRef
+                Nothing -> TR.Ref
+        rep =
+            newtypeWrapper . TR.RefPrimitiveType $
+            case typeTag of
+                JS.PrimStringTag -> fromMaybe "Data.Text.Text" tInfo
+                JS.PrimIntTag    -> fromMaybe "Prelude.Int" tInfo
+                JS.PrimDoubleTag -> fromMaybe "Data.Scientific.Scientific" tInfo
+                JS.PrimBoolTag   -> "Prelude.Bool"
+                JS.PrimNullTag   -> "Data.TransportTypes.Utils.UnitProxy"
+
+parseEnum :: Object -> StatefulParser ModuleParts
+parseEnum obj = do
+    checkType obj $ \case
+        Just JS.Primitive -> return ()
+        _                 -> fail "Can't parse this as an enum"
+    enum <- lift $ obj .: "enum"
+    title <- lift $ obj .:? "title"
+    let enc = decodeUtf8 . encode $ obj
+    return $ parseStringEnum enc enum title
+  where
+    parseStringEnum :: Text -> [String] -> Maybe U.Title -> ModuleParts
+    parseStringEnum enc enum title = ModuleParts title mempty mempty typeRep enc
+      where
+        typeRep = TR.SumType . Map.fromList $ (, TR.SumConstr []) <$> enum
 
 parseConst :: Object -> StatefulParser ModuleParts
 parseConst obj = do
@@ -166,76 +221,59 @@ parseAllOf obj = do
     let ini = ModuleParts title mempty mempty (TR.AllOfType mempty) (decodeUtf8 . encode $ obj)
     return $ foldr MP.appendAofPart ini $ zip [1 ..] options
 
-parseArray :: Object -> Maybe U.Title -> StatefulParser ModuleParts
-parseArray obj maybeTitle = do
+parseArray :: Object -> StatefulParser ModuleParts
+parseArray obj = do
+    checkType obj $ \case
+        Just JS.ArrayTag -> return ()
+        _                -> fail "Can't parse this as an array"
+    title <- lift $ obj .:? "title"
     let itemField :: String = "items"
-    itemsModule <- parseDispatch =<< lift (obj .: fromString itemField)
+    itemsModule <-
+        parseDispatch =<<
+        lift
+            (obj .:? fromString itemField .!=
+             case object ["type" .= String "null"] of
+                 Object o -> o)
     let enc = decodeUtf8 . encode $ obj
     case itemsModule ^. declaration of
         (TR.Ref (TR.RefExternalType s tn)) ->
             return $
             ModuleParts
-                maybeTitle
+                title
                 (Set.singleton s)
                 mempty
                 (TR.ArrayType (TR.ReferenceToExternalType s tn))
                 enc
         (TR.Ref (TR.RefPrimitiveType s)) ->
             return $
-            ModuleParts
-                maybeTitle
-                mempty
-                mempty
-                (TR.ArrayType (TR.ReferenceToPrimitiveType s))
-                enc
+            ModuleParts title mempty mempty (TR.ArrayType (TR.ReferenceToPrimitiveType s)) enc
         _local ->
             let tn = U.chooseName itemField (itemsModule ^. jsTitle)
              in return $
                 ModuleParts
-                    maybeTitle
+                    title
                     mempty
                     (Map.singleton itemField itemsModule)
                     (TR.ArrayType (TR.ReferenceToLocalType itemField tn))
                     enc
 
-parseStringEnum :: Text -> [String] -> Maybe U.Title -> ModuleParts
-parseStringEnum enc enum title = ModuleParts title mempty mempty typeRep enc
-  where
-    typeRep = TR.SumType . Map.fromList $ (, TR.SumConstr []) <$> enum
-
-parsePrimitve ::
-       Text -> JS.PrimitiveTag -> Maybe U.Title -> Maybe TypeInfo -> StatefulParser ModuleParts
-parsePrimitve enc typeTag maybeTitle tInfo = do
-    return $ ModuleParts maybeTitle mempty mempty rep enc
-  where
-    newtypeWrapper =
-        case maybeTitle of
-            Just _  -> TR.NewType . TR.ExtRef
-            Nothing -> TR.Ref
-    rep =
-        newtypeWrapper . TR.RefPrimitiveType $
-        case typeTag of
-            JS.PrimStringTag -> fromMaybe "Data.Text.Text" tInfo
-            JS.PrimIntTag    -> fromMaybe "Prelude.Int" tInfo
-            JS.PrimDoubleTag -> fromMaybe "Data.Scientific.Scientific" tInfo
-            JS.PrimBoolTag   -> "Prelude.Bool"
-            JS.PrimNullTag   -> "Data.TransportTypes.Utils.UnitProxy"
-
-parseRecordLike :: Object -> JS.RecordLikeTag -> Maybe U.Title -> StatefulParser ModuleParts
-parseRecordLike obj typeTag title = do
+parseRecordLike :: Object -> StatefulParser ModuleParts
+parseRecordLike obj = do
+    initialTypeRep <-
+        checkType obj $ \case
+            Just JS.EnumTag   -> return $ TR.SumType mempty
+            Just JS.ObjectTag -> return $ TR.ProdType mempty
+            _                 -> fail "Can't parse this like a record-like type"
+    title <- lift $ obj .:? "title"
     (reqs :: [TR.FieldName]) <- lift $ obj .:? "required" .!= mempty
     (properties :: Map TR.FieldName (Object, Bool)) <-
-        lift $ checkRequired reqs =<< obj .:? "properties" .!= mempty
+        lift $ checkRequired reqs title =<< obj .:? "properties" .!= mempty
     (parsedProperties :: Map TR.FieldName (ModuleParts, Bool)) <-
         mapM
             (\(obj', req) -> do
                  mp <- parseDispatch obj'
                  return (mp, req))
             properties
-    let initialTypeRep =
-            case typeTag of
-                JS.RecEnumTag   -> TR.SumType mempty
-                JS.RecObjectTag -> TR.ProdType mempty
     return $
         Map.foldrWithKey
             MP.appendRecord
@@ -244,9 +282,10 @@ parseRecordLike obj typeTag title = do
   where
     checkRequired ::
            [TR.FieldName]
+        -> Maybe U.Title
         -> Map TR.FieldName Object
         -> Parser (Map TR.FieldName (Object, Bool))
-    checkRequired reqs properties =
+    checkRequired reqs title properties =
         if all (`Map.member` properties) reqs
             then do
                 let setReqs = Set.fromList reqs

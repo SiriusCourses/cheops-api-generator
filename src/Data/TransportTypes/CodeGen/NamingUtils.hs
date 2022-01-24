@@ -170,7 +170,7 @@ defaultImportNames =
 
 -- | Constant for import in Spec.hs
 specImports :: [String]
-specImports = ["Test.QuickCheck", "Data.TransportTypes.FFI", "System.ProgressBar"]
+specImports = ["Test.QuickCheck", "FFI", "System.ProgressBar"]
 
 -- | Constant for imports in each test
 perTestImports :: [String]
@@ -189,7 +189,7 @@ perTestImports =
     , "Data.Text"
     , "Data.ByteString"
     , "Data.ByteString.Lazy"
-    , "Data.TransportTypes.FFI"
+    , "FFI"
     , "Control.Exception"
     , "Codec.Binary.UTF8.String"
     ]

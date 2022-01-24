@@ -11,7 +11,7 @@ import qualified Data.Map       as Map
 import Data.Yaml (decodeHelper)
 
 import System.Directory     (canonicalizePath, createDirectoryIfMissing)
-import System.FilePath      (takeDirectory, (</>))
+import System.FilePath      (splitDirectories, takeDirectory, (</>))
 import System.FilePath.Find (always, extension, find, (==?))
 
 import GHC           (getSessionDynFlags, runGhc)
@@ -40,7 +40,11 @@ import           Util                                         (singleton)
 collectFiles :: FilePath -> IO [FilePath]
 collectFiles path = do
     files <- find always (extension ==? ".yaml") path
-    traverse canonicalizePath files
+    cfn <- traverse canonicalizePath files
+    return $ filter containsSchema cfn
+  where
+    containsSchema :: FilePath -> Bool
+    containsSchema path' = "schema" `elem` (splitDirectories . takeDirectory $ path')
 
 main :: IO ()
 main = do
@@ -144,9 +148,11 @@ main = do
             for_ data' $ \(path, (ws, err')) -> do
                 when (not (null ws) || isLeft err') $ putStrLn path
                 unless (null ws) $ do
+                    putStrLn ""
                     putStrLn "Warnings:"
                     traverse_ print ws
                 when (isLeft err') $ do
+                    putStrLn ""
                     putStrLn "Errors:"
                     print (head $ lefts [err'])
     saveModules :: Maybe (PB.ProgressBar ()) -> [(FilePath, HsModule')] -> IO ()

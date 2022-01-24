@@ -1,4 +1,4 @@
-module Data.TransportTypes.FFI(validateJSON, start_python, end_python) where
+module FFI(validateJSON, start_python, end_python) where
 
 {-# LANGUAGE ForeignFunctionInterface #-}
 
