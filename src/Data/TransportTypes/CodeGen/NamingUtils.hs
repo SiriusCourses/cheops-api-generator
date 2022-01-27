@@ -189,7 +189,10 @@ perTestImports =
     , "Data.Text"
     , "Data.ByteString"
     , "Data.ByteString.Lazy"
-    , "FFI"
     , "Control.Exception"
     , "Codec.Binary.UTF8.String"
+    , "Control.Monad"
+    , "Data.TransportTypes.Utils"
+    , "FFI"
+    , "Prototypes"
     ]

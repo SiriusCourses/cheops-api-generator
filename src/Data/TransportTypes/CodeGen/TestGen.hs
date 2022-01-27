@@ -6,11 +6,10 @@ import qualified Data.Set    as Set
 import           Data.String (fromString)
 import qualified Data.Text   as T
 
-import           GHC.SourceGen (App ((@@)), BVar (bvar), HasTuple (unit), HsModule', Var (var),
-                                case', conP, do', funBind, import', instance', int, list,
-                                match, matchGRHSs, module', op, qualified', recordUpd, rhs,
-                                stmt, strictP, string, typeSig, valBind, where', (-->), (<--))
-import qualified GHC.SourceGen as GCH.SG
+import GHC.SourceGen (App ((@@)), BVar (bvar), HasList (list), HsDecl', HsModule', Var (var),
+                      case', conP, do', funBind, import', instance', int, lambda, match,
+                      matchGRHSs, module', op, qualified', recordUpd, rhs, stmt, string,
+                      typeSig, valBind, where', (-->), (<--))
 
 import           Data.List                               (intersperse)
 import           Data.TransportTypes.CodeGen.Hylo        (Payload (..))
@@ -18,20 +17,36 @@ import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import           Data.TransportTypes.CodeGen.TypeGen     (gatherLocalImports)
 import qualified Data.TransportTypes.TypeRep             as TR
 
+testName :: String
+testName = "prop_encdecInv"
+
+antherTestName :: String
+antherTestName = "prop_decencInv"
+
 buildSpec :: [FilePath] -> HsModule'
 buildSpec paths =
     module'
         Nothing
         Nothing
         (qualified' . import' . fromString <$> imports <> U.specImports)
-        [mainSig, mainDef]
+        [argsSig, args, mainSig, mainDef]
   where
     imports = U.prefixToModuleName . U.pathToPrefix <$> paths
+    argsSig = typeSig "args" (var "Test.QuickCheck.Args")
+    args =
+        funBind "args" $
+        match
+            []
+            (recordUpd
+                 (var "Test.QuickCheck.stdArgs")
+                 [ ("Test.QuickCheck.chatty", var "False")
+                 , ("Test.QuickCheck.maxSuccess", int 25)
+                 , ("Test.QuickCheck.maxSize", int 50)
+                 ])
     main = "main"
     mainSig = typeSig main (var "IO" @@ var "()")
     mainDef = funBind main $ match [] mainBdy
       where
-        testName = "prop_encdecInv"
         mainBdy =
             do' $
             stmt (var "FFI.start_python") :
@@ -41,14 +56,14 @@ buildSpec paths =
                 intersperse (stmt $ var "System.ProgressBar.incProgress" @@ var "pb" @@ int 1) $
                 (\t ->
                      stmt $
-                     var "Test.QuickCheck.quickCheckWith" @@
-                     recordUpd
-                         (var "Test.QuickCheck.stdArgs")
-                         [ ("Test.QuickCheck.chatty", var "False")
-                         , ("Test.QuickCheck.maxSuccess", int 25)
-                         , ("Test.QuickCheck.maxSize", int 50)
-                         ] @@
-                     var (fromString $ t ++ "." ++ testName)) <$>
+                     do'
+                         [ stmt $
+                           var "Test.QuickCheck.quickCheckWith" @@ var "args" @@
+                           var (fromString $ t ++ "." ++ testName)
+                         , stmt $
+                           var "Test.QuickCheck.quickCheckWith" @@ var "args" @@
+                           var (fromString $ t ++ "." ++ antherTestName)
+                         ]) <$>
                 imports
             progressBar =
                 var "System.ProgressBar.newProgressBar" @@ var "System.ProgressBar.defStyle" @@
@@ -73,7 +88,14 @@ buildTest Payload {..} prefix =
             (Just . fromString $ testModuleName)
             exports
             imports
-            [arbitraryInstanceDecl, testSig, test, rawSchemeLitSig, rawSchemeLit]
+            [ arbitraryInstanceDecl
+            , testSig
+            , test
+            , antoherTestSig
+            , antoherTest
+            , rawschemaLitSig
+            , rawschemaLit
+            ]
   where
     qualTypename :: TR.TypeName
     qualTypename = U.prefixToQualTypeName prefix title
@@ -81,14 +103,170 @@ buildTest Payload {..} prefix =
         instance'
             (var "Test.QuickCheck.Arbitrary" @@ (var . fromString $ qualTypename))
             [funBind "arbitrary" $ match [] (var "Generic.Random.genericArbitraryU")]
-    propName = "prop_encdecInv"
+    (testSig, test) = buildtoJSONInvTest qualTypename typeRep
+    (antoherTestSig, antoherTest) = buildFromJSONInvTest qualTypename typeRep
+    (rawschemaLitSig, rawschemaLit) = buildschemaLiteral json
+
+buildtoJSONInvTest :: TR.TypeName -> TR.TypeRep -> (HsDecl', HsDecl')
+buildtoJSONInvTest qualTypename typeRep = (testSig, test)
+  where
+    propName = antherTestName
     testSig =
-        typeSig propName $ var (fromString qualTypename) --> var "Test.QuickCheck.Property"
-    sampleName = "sample"
-    test = funBind propName $ match [bvar "sample'"] testBdy
+        typeSig (fromString propName) $
+        var (fromString qualTypename) --> var "Test.QuickCheck.Property"
+    test = funBind (fromString propName) $ matchGRHSs [] $ rhs testBdy `where'` [precondition]
       where
         testBdy =
-            let precondition =
+            var "Prototypes.prop_toJSONInv_prot" @@ string qualTypename @@ var "precondition" @@
+            var "rawSchema"
+        precondition =
+            valBind "precondition" $
+            case typeRep of
+                TR.AnyOfType set' ->
+                    let bindNames = (\n -> "part" ++ show n) <$> [1 .. Set.size set']
+                        patternMatch =
+                            conP (fromString qualTypename) $ bvar . fromString <$> bindNames
+                     in lambda [bvar "x"] $
+                        case'
+                            (var "x")
+                            [ match [patternMatch] $
+                              var "Prelude.any" @@ var "Prelude.id" @@
+                              list
+                                  ((var "Data.Maybe.isJust" @@) . var . fromString <$>
+                                   bindNames)
+                            ]
+                _ -> var "Prelude.const" @@ var "Prelude.True"
+
+buildFromJSONInvTest :: TR.TypeName -> TR.TypeRep -> (HsDecl', HsDecl')
+buildFromJSONInvTest qualTypename _ = (testSig, test)
+  where
+    propName = testName
+    testSig =
+        typeSig (fromString propName) $ var (fromString qualTypename) --> var "Prelude.Bool"
+    test = funBind (fromString propName) $ match [] testBdy
+      where
+        testBdy = var "Prototypes.prop_fromJSONInv_prot"
+
+buildschemaLiteral :: T.Text -> (HsDecl', HsDecl')
+buildschemaLiteral json = (rawschemaLitSig, rawschemaLit)
+  where
+    rawschemaLitName = "rawSchema"
+    rawschemaLitSig = typeSig rawschemaLitName $ var "Data.ByteString.ByteString"
+    rawschemaLit =
+        funBind rawschemaLitName $
+        matchGRHSs [] $
+        rhs
+            (var "Data.ByteString.UTF8.fromString" @@
+             (var "replaceOneOf" @@ string (T.unpack json))) `where'`
+        [ valBind "replaceOneOf" $
+          foldr1
+              (`op` ".")
+              [ var "Data.Text.unpack"
+              , var "Data.Text.replace" @@ string "oneOf:" @@ string "anyOf:"
+              , var "Data.Text.pack"
+              ]
+        ]
+{-
+var "Test.QuickCheck.Monadic.monadicIO" @@
+            do'
+                [ (strictP . bvar . fromString $ recSchemaName) <--
+                  var "Test.QuickCheck.Monadic.run" @@
+                  yaml2jsonSchema
+                , tuple [bvar "res", bvar "genSample"] <-- var "Test.QuickCheck.Monadic.run" @@
+                  (var "FFI.withGeneratedBySchema" @@ var (fromString recSchemaName) @@
+                   lambda [bvar "rawSample"] insepectSample)
+                , analyzeResult
+                , stmt $ var "Test.QuickCheck.Monadic.assert" @@ var "res"
+                ]
+          where
+            recSchemaName :: String
+            recSchemaName = "recSchema"
+            yaml2jsonSchema = decodeEncode "schema" (var "rawSchema")
+            insepectSample =
+                case'
+                    json2yaml2object
+                    [ match [conP "Prelude.Left" [bvar "x"]] errorInspection
+                    , match
+                          [ conP
+                                "Prelude.Right"
+                                [sigP (bvar "x") (var . fromString $ qualTypename)]
+                          ]
+                          (do' [ bvar "res" <-- validateObject
+                               , stmt $ var "Prelude.return" @@ tuple [var "res", var "x"]
+                               ])
+                    ]
+              where
+                jsonToValidate =
+                    decodeEncode
+                        "recoding data to yaml and to json to validate"
+                        (var "Data.Yaml.encode" @@ var "x")
+                validateObject =
+                    op
+                        (lambda [bvar "yamlObj"] $
+                         var "FFI.validateJSON" @@ var "yamlObj" @@ var (fromString recSchemaName))
+                        "=<<"
+                        jsonToValidate
+                errorInspection =
+                    do'
+                        [ stmt $
+                          var "Prelude.putStrLn" @@
+                          string ("Exception during fromJSON test of " ++ qualTypename)
+                        , stmt $
+                          var "Prelude.putStrLn" @@
+                          string "exception while recoding generated object:"
+                        , stmt $ var "Prelude.print" @@ var "x"
+                        , stmt $ var "Prelude.putStrLn" @@ string "sample in text form:"
+                        , stmt $ var "Prelude.print" @@ var "rawSample"
+                        , stmt $ var "Prelude.putStrLn" @@ string "schema:"
+                        , stmt $
+                          var "Prelude.putStrLn" @@
+                          (var "Codec.Binary.UTF8.String.decode" @@
+                           (var "Data.ByteString.unpack" @@ var (fromString recSchemaName)))
+                        , stmt $ var "fail" @@ var "x"
+                        ]
+                json2yaml2object =
+                    do'
+                        [ bvar "decoded" <-- var "Data.Aeson.eitherDecodeStrict'" @@
+                          var "rawSample"
+                        , bvar "recSample" <--
+                          (var "Prelude.return" @@
+                           (var "Data.Yaml.encode" @@
+                            (var "decoded" GCH.SG.@::@ var "Data.Aeson.Value")))
+                        , stmt $
+                          var "Prelude.either" @@
+                          op (var "Prelude.Left") "." (var "Prelude.show") @@
+                          var "Prelude.Right" @@
+                          (var "Data.Yaml.decodeEither'" @@ var "recSample")
+                        ]
+            analyzeResult =
+                stmt $
+                var "Control.Monad.unless" @@ var "res" @@
+                (var "Test.QuickCheck.Monadic.run" @@
+                 do'
+                     [ stmt $ var "Prelude.putStrLn" @@ string ""
+                     , stmt $ var "Prelude.putStrLn" @@ string ""
+                     , stmt $
+                       var "Prelude.putStrLn" @@
+                       string ("Failed test(fromJSON) for " ++ qualTypename)
+                     , stmt $ var "Prelude.putStrLn" @@ string "sample:"
+                     , stmt $ var "Prelude.print" @@ var "genSample"
+                     , stmt $ var "Prelude.putStrLn" @@ string "encoded sample:"
+                     , stmt $
+                       var "Prelude.putStrLn" @@
+                       (var "Codec.Binary.UTF8.String.decode" @@
+                        (var "Data.ByteString.unpack" @@
+                         (var "Data.Yaml.encode" @@ var "genSample")))
+                     , stmt $ var "Prelude.putStrLn" @@ string "recoded schema:"
+                     , stmt $
+                       var "Prelude.putStrLn" @@
+                       (var "Codec.Binary.UTF8.String.decode" @@
+                        (var "Data.ByteString.unpack" @@ var (fromString recSchemaName)))
+                     ])
+
+
+
+
+let precondition =
                     case typeRep of
                         TR.AnyOfType set' ->
                             let bindNames = (\n -> "part" ++ show n) <$> [1 .. Set.size set']
@@ -107,101 +285,68 @@ buildTest Payload {..} prefix =
              in var "Test.QuickCheck.Monadic.monadicIO" @@
                 do'
                     [ stmt $ var "Test.QuickCheck.Monadic.pre" @@ precondition
-                    -- , stmt $
-                    --   var "Test.QuickCheck.Monadic.run" @@
-                    --   (var "putStrLn" @@ string (">>> Testing: " ++ qualTypename))
-                    -- , stmt $
-                    --   var "Test.QuickCheck.Monadic.run" @@
-                    --   (var "putStrLn" @@ string "getting scheme")
-                    , strictP (bvar "recScheme") <-- var "Test.QuickCheck.Monadic.run" @@
-                      decodeEncode "scheme" (var "rawScheme")
-                    -- , stmt $
-                    --   var "Test.QuickCheck.Monadic.run" @@
-                    --   (var "putStrLn" @@ string "sampling sample")
-                    , bvar (fromString sampleName) <-- var "Test.QuickCheck.Monadic.run" @@
-                      case' (var "sample'") [match [bvar "s"] $ var "pure" @@ var "s"]
-                    -- , stmt $
-                    --   var "Test.QuickCheck.Monadic.run" @@
-                    --   (var "putStrLn" @@ string "encoding-decoding sample")
-                    , strictP (bvar "recSample") <-- var "Test.QuickCheck.Monadic.run" @@
-                      decodeEncode
-                          "object"
-                          (var "Data.Yaml.encode" @@ var (fromString sampleName))
-                    -- , stmt $
-                    --   var "Test.QuickCheck.Monadic.run" @@
-                    --   (var "putStrLn" @@ string "validating")
                     , strictP (bvar (fromString resName)) <-- var "Test.QuickCheck.Monadic.run" @@
-                      (var "FFI.validateJSON" @@ var "recSample" @@ var "recScheme")
-                    -- , stmt $
-                    --   var "Test.QuickCheck.Monadic.run" @@
-                    --   (var "putStrLn" @@ string "inspecting result")
-                    , stmt $
-                      case'
-                          (var (fromString resName))
-                          [ match [bvar "True"] $ var "return" @@ unit
-                          , match [bvar "False"] $
-                            var "Test.QuickCheck.Monadic.run" @@
-                            do'
-                                [ stmt $ var "putStrLn" @@ string ""
-                                , stmt $ var "putStrLn" @@ string ""
-                                , stmt $
-                                  var "putStrLn" @@ string ("Failed test for " ++ qualTypename)
-                                , stmt $ var "putStrLn" @@ string "sample:"
-                                , stmt $
-                                  var "putStrLn" @@ (var "show" @@ var (fromString sampleName))
-                                , stmt $ var "putStrLn" @@ string "recoded sample:"
-                                , stmt $ var "putStrLn" @@ (var "show" @@ var "recSample")
-                                , stmt $ var "putStrLn" @@ string "recoded scheme:"
-                                , stmt $
-                                  var "putStrLn" @@
-                                  (var "Codec.Binary.UTF8.String.decode" @@
-                                   (var "Data.ByteString.unpack" @@ var "recScheme"))
-                                ]
+                      do'
+                          [ strictP (bvar "recSchema") <--
+                            decodeEncode "schema" (var "rawSchema")
+                          , bvar (fromString sampleName) <--
+                            case' (var "sample'") [match [bvar "s"] $ var "pure" @@ var "s"]
+                          , strictP (bvar "recSample") <--
+                            decodeEncode
+                                "object"
+                                (var "Data.Yaml.encode" @@ var (fromString sampleName))
+                          , stmt $ var "FFI.validateJSON" @@ var "recSample" @@ var "recSchema"
                           ]
+                    , stmt $
+                      var "Control.Monad.unless" @@ var "res" @@
+                      (var "Test.QuickCheck.Monadic.run" @@
+                       do'
+                           [ stmt $ var "putStrLn" @@ string ""
+                           , stmt $ var "putStrLn" @@ string ""
+                           , stmt $
+                             var "putStrLn" @@
+                             string ("Failed test(toJSON) for " ++ qualTypename)
+                           , stmt $ var "putStrLn" @@ string "sample:"
+                           , stmt $ var "print" @@ var "sample'"
+                           , stmt $ var "putStrLn" @@ string "recoded schema:"
+                           , stmt $
+                             var "putStrLn" @@
+                             (var "Codec.Binary.UTF8.String.decode" @@
+                              (var "Data.ByteString.unpack" @@ var "rawSchema"))
+                           ])
                     , assertTrue
                     ]
           where
             resName = "res"
-            decodeEncode msg x =
-                flip
-                    case'
-                    [ match [conP "Left" [bvar "x"]] $
-                      do'
-                          [ stmt $
-                            var "putStrLn" @@
-                            string ("exception from yaml decoder (" ++ msg ++ ") :")
-                          , stmt $ var "print" @@ var "x"
-                          , stmt $ var "putStrLn" @@ string "on encoding:"
-                          , stmt $ var "print" @@ x
-                          , stmt $ var "Control.Exception.throw" @@ var "x"
-                          ]
-                    , match [conP "Right" [bvar "x"]] $ var "return" @@ var "x"
-                    ] $
-                do'
-                    [ bvar (fromString decodedName) <-- var "Data.Yaml.decodeEither'" @@ x
-                    , stmt $
-                      var "return" @@
-                      (var "Data.ByteString.Lazy.toStrict" @@
-                       (var "Data.Aeson.encode" @@
-                        (var (fromString decodedName) GCH.SG.@::@ var "Data.Yaml.Value")))
-                    ]
-              where
-                decodedName = "decoded"
             assertTrue =
                 stmt $ var "Test.QuickCheck.Monadic.assert" @@ var (fromString resName)
-    rawSchemeLitName = "rawScheme"
-    rawSchemeLitSig = typeSig rawSchemeLitName $ var "Data.ByteString.ByteString"
-    rawSchemeLit =
-        funBind rawSchemeLitName $
-        matchGRHSs [] $
-        rhs
-            (var "Data.ByteString.UTF8.fromString" @@
-             (var "replaceOneOf" @@ string (T.unpack json))) `where'`
-        [ valBind "replaceOneOf" $
-          foldr1
-              (`op` ".")
-              [ var "Data.Text.unpack"
-              , var "Data.Text.replace" @@ string "oneOf:" @@ string "anyOf:"
-              , var "Data.Text.pack"
+
+
+
+decodeEncode :: String -> HsExpr' -> HsExpr'
+decodeEncode msg x =
+    flip
+        case'
+        [ match [conP "Left" [bvar "x'"]] $
+          do'
+              [ stmt $
+                var "putStrLn" @@ string ("exception from yaml decoder (" ++ msg ++ ") :")
+              , stmt $ var "print" @@ var "x'"
+              , stmt $ var "putStrLn" @@ string "on encoding:"
+              , stmt $ var "print" @@ x
+              , stmt $ var "Control.Exception.throw" @@ var "x'"
               ]
+        , match [conP "Right" [bvar "x'"]] $ var "return" @@ var "x'"
+        ] $
+    do' [ sigP (bvar (fromString decodedName)) (var "Data.Yaml.Value") <-- var "Prelude.fmap" @@
+          var "Data.TransportTypes.Utils.addEmptyPropertiesToObjects" @@
+          (var "Data.Yaml.decodeEither'" @@ x)
+        , stmt $
+          var "return" @@
+          (var "Data.ByteString.Lazy.toStrict" @@
+           (var "Data.Aeson.encode" @@ var (fromString decodedName)))
         ]
+  where
+    decodedName = "decoded"
+
+-}

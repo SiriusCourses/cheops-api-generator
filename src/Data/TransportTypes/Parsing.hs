@@ -119,7 +119,7 @@ parseDispatch obj = do
                     mempty
 
 checkType :: Object -> (Maybe JS.TypeTag -> StatefulParser a) -> StatefulParser a
-checkType object k = k . JS.parseTypeTag =<< lift (object .: "type")
+checkType obj k = k . JS.parseTypeTag =<< lift (obj .: "type")
 
 parseNull :: Object -> StatefulParser ModuleParts
 parseNull obj -- fail $ "No option for parsing:\n" ++ (T.unpack . decodeUtf8 . encode $  obj)
@@ -233,7 +233,8 @@ parseArray obj = do
         lift
             (obj .:? fromString itemField .!=
              case object ["type" .= String "null"] of
-                 Object o -> o)
+                 Object o -> o
+                 _        -> undefined)
     let enc = decodeUtf8 . encode $ obj
     case itemsModule ^. declaration of
         (TR.Ref (TR.RefExternalType s tn)) ->
