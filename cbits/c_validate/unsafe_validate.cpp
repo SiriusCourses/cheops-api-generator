@@ -4,6 +4,7 @@
 
 #include "unsafe_validate.h"
 #include <string>
+#include <exception>
 #include <pybind11/embed.h>
 
 namespace py = pybind11;
@@ -39,8 +40,8 @@ fake_json_cnt = faker.generate()
 fake_json = json.dumps(fake_json_cnt)
     )", py::globals(), locals);
     }
-    catch (...) {
-        return "error_inside_python_code";
+    catch (const std::exception& e) {
+        return e.what();
     }
     return locals["fake_json"].cast<std::string>();
 }
