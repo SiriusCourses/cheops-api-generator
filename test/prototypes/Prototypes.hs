@@ -12,8 +12,6 @@ import Data.Yaml  (FromJSON, ParseException, ToJSON, decodeEither', encode)
 
 import Test.QuickCheck         (Property)
 import Test.QuickCheck.Monadic (assert, monadicIO, pre, run)
-
-import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import qualified FFI
 
 prop_fromJSONInv_prot ::
@@ -30,7 +28,7 @@ prop_fromJSONInv_prot sample
 
 prop_toJSONInv_prot ::
        forall a. (ToJSON a, Show a)
-    => U.QualTypeName
+    => String
     -> (a -> Bool)
     -> ByteString
     -> a

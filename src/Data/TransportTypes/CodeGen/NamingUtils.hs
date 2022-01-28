@@ -183,7 +183,6 @@ perTestImports =
     , "Data.Yaml"
     , "Data.Aeson"
     , "System.IO"
-    , "System.Directory"
     , "Data.Maybe"
     , "Data.ByteString.UTF8"
     , "Data.Text"
