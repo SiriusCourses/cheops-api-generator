@@ -15,10 +15,10 @@ hidingPrelude = flip exposing [] $ import' "Prelude"
 
 -- | Constant for default deriving clauses
 defaultDerivingClause :: [HsDerivingClause']
-defaultDerivingClause = [generic, json]
+defaultDerivingClause = [generic, schema]
   where
     generic = deriving' [var "GHC.Generics.Generic", var "Prelude.Show", var "Prelude.Eq"]
-    json = derivingAnyclass [var "Data.Yaml.FromJSON"]
+    schema = derivingAnyclass [var "Data.Swagger.ToSchema"]
 
 -- | Constant for default deriving clauses
 minDerivingClause :: [HsDerivingClause']

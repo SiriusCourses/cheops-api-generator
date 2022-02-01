@@ -153,19 +153,24 @@ testFilePathFromModuleFilePath fn = replaceFileName fn $ takeBaseName fn ++ "Tes
 -- | Constant for default imports
 defaultImportNames :: [String]
 defaultImportNames =
-    [ "Data.Yaml"
+    [ "Prelude"
+    , "Control.Applicative"
+    , "Control.Lens"
     , "GHC.Generics"
     , "GHC.Types"
     , "GHC.Int"
+    , "Data.Aeson"
+    , "Data.Yaml"
     , "Data.Text"
     , "Data.Vector"
     , "Data.Scientific"
     , "Data.Maybe"
     , "Data.Bifunctor"
-    , "Prelude"
     , "Data.Foldable"
-    , "Control.Applicative"
     , "Data.TransportTypes.Utils"
+    , "Data.Swagger"
+    , "Data.Swagger.Internal.Schema"
+    , "Data.Proxy"
     ]
 
 -- | Constant for import in Spec.hs
@@ -175,23 +180,23 @@ specImports = ["Test.QuickCheck", "FFI", "System.ProgressBar"]
 -- | Constant for imports in each test
 perTestImports :: [String]
 perTestImports =
-    [ "Test.QuickCheck"
+    [ "FFI"
+    , "Prototypes"
+    , "System.IO"
+    , "Data.TransportTypes.Utils"
+    , "Test.QuickCheck"
     , "Test.QuickCheck.Instances"
     , "Test.QuickCheck.Monadic"
     , "Generic.Random"
     , "GHC.Generics"
     , "Data.Yaml"
     , "Data.Aeson"
-    , "System.IO"
     , "Data.Maybe"
     , "Data.ByteString.UTF8"
     , "Data.Text"
     , "Data.ByteString"
     , "Data.ByteString.Lazy"
     , "Control.Exception"
-    , "Codec.Binary.UTF8.String"
     , "Control.Monad"
-    , "Data.TransportTypes.Utils"
-    , "FFI"
-    , "Prototypes"
+    , "Codec.Binary.UTF8.String"
     ]
