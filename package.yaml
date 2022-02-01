@@ -44,7 +44,7 @@ dependencies:
 - text
 - vector
 - lens
-- aeson >= 2.0
+- aeson
 - yaml
 - libyaml
 - conduit
@@ -59,10 +59,6 @@ dependencies:
 - casing
 - split
 - optparse-generic
-- scientific
-- QuickCheck
-- quickcheck-instances
-- generic-random
 - template-haskell
 - terminal-progress-bar
 - utf8-string
@@ -101,7 +97,7 @@ tests:
   config-generation-test:
     main:                Spec.hs
     source-dirs:         
-    # - test
+    - test
     - test/ffi
     - test/prototypes
     # - generated-api/test
