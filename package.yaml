@@ -98,8 +98,8 @@ tests:
     main:                Spec.hs
     source-dirs:         
     - test
-    - test/ffi
-    - test/prototypes
+    # - test/ffi
+    # - test/prototypes
     # - generated-api/test
     ghc-options:
     - -threaded
