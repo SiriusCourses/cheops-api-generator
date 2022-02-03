@@ -62,7 +62,6 @@ main = do
                         res <-
                             decodeHelper @ParserResult $
                             (eventsFromFile (RepositoryRoot crr) f .|
-                             -- additionalPropertiesDropper .|
                              itemCountDropper)
                         liftIO $ PB.incProgress pb 1
                         return res)
