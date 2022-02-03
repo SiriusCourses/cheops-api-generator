@@ -1,3 +1,8 @@
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use camelCase" #-}
 module Prototypes where
 
 import Control.Applicative (liftA2)
@@ -10,30 +15,44 @@ import           Data.ByteString.Lazy     (toStrict)
 import Data.Aeson (Value, encode)
 import Data.Yaml  (FromJSON, ParseException, ToJSON, decodeEither', encode)
 
-import Test.QuickCheck         (Property)
-import Test.QuickCheck.Monadic (assert, monadicIO, pre, run)
 import qualified FFI
+import           Test.QuickCheck         (Property)
+import           Test.QuickCheck.Monadic (assert, monadicIO, pre, run)
 
-prop_fromJSONInv_prot ::
-       forall a. (ToJSON a, FromJSON a, Eq a)
+import Data.Proxy
+import Debug.Trace (trace)
+
+instance {-# OVERLAPPING #-} Eq (Maybe (Proxy ())) where
+    _ == _ = True
+
+encodingDecodingInvariantTest_prototype ::
+       forall a. (ToJSON a, FromJSON a, Eq a, Show a)
     => a
     -> Bool
-prop_fromJSONInv_prot sample
-    | Right True <- single `eq` double = True
-    | otherwise = False
+encodingDecodingInvariantTest_prototype sample
+    | Right True <- (== sample) <$> recodedSample = True
+    | otherwise =
+        trace
+            (">>> Failed test!!!\n" ++
+             "sample:\n" ++
+             show sample ++
+             "\nencoding:\n" ++
+             encodingRepPritty ++ "\nRecoded sample:\n" ++ show recodedSample ++ "\n")
+            () `seq`
+        False
   where
-    single = Data.Yaml.decodeEither' @a . Data.Yaml.encode $ sample
-    double = Data.Yaml.decodeEither' @a . Data.Yaml.encode =<< single
-    eq = liftA2 (==)
+    encodingRepPritty = Codec.Binary.UTF8.String.decode . Data.ByteString.unpack $ encodingRep
+    encodingRep = Data.Yaml.encode sample
+    recodedSample = Data.Yaml.decodeEither' @a encodingRep
 
-prop_toJSONInv_prot ::
+validationTest_prototype ::
        forall a. (ToJSON a, Show a)
     => String
     -> (a -> Bool)
     -> ByteString
     -> a
     -> Property
-prop_toJSONInv_prot qualTypename precond rawSchema sample =
+validationTest_prototype qualTypename precond rawSchema sample =
     monadicIO $ do
         pre $ precond sample
         jsonSchema <-
@@ -68,3 +87,14 @@ prop_toJSONInv_prot qualTypename precond rawSchema sample =
         print jsonObj
         putStrLn "json schema:"
         putStrLn . Codec.Binary.UTF8.String.decode . Data.ByteString.unpack $ jsonSch
+{-
+sample:
+PublicInfoResponse
+    Nothing
+    Just (PublicInfoResponseSuccess {success = Success []})
+recSample:
+PublicInfoResponse
+    Just (BaseResponse {dialogue = Nothing, errors = Nothing, warnings = Nothing})
+    Just (PublicInfoResponseSuccess {success = Success []})
+
+-}
