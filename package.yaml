@@ -63,12 +63,11 @@ dependencies:
 - terminal-progress-bar
 - utf8-string
 - bytestring
+- QuickCheck
 
 ghc-options:
 - -Wincomplete-patterns
 - -Wall
-# - -Wno-unused-imports
-# - -fno-warn-orphans
 - -Wcompat
 - -Wincomplete-record-updates
 - -Wredundant-constraints
@@ -79,8 +78,6 @@ ghc-options:
 library:
   source-dirs: 
   - src
-  # - generated
-  # - generated-api/src
 
 executables:
   config-generation-exe:
@@ -98,9 +95,6 @@ tests:
     main:                Spec.hs
     source-dirs:         
     - test
-    # - test/ffi
-    # - test/prototypes
-    # - generated-api/test
     ghc-options:
     - -threaded
     - -rtsopts
