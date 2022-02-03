@@ -62,7 +62,7 @@ newtype SumConstrF a =
     deriving anyclass (ToJSON)
 
 data TypeRep
-    = ProdType (Map FieldName Field)
+    = ProdType (Map FieldName Field) Bool
     | SumType (Map FieldName SumConstr)
     | OneOfType (Map FieldName SumConstr)
     | AnyOfType (Set TypeRef)

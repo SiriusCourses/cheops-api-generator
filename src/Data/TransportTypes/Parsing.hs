@@ -92,7 +92,7 @@ parseDispatch obj = do
         , parseRecordLike
         , parseEnum
         , parsePrim
-        , parseNull
+        , parseUnknon
         ] <*>
         pure obj
   where
@@ -121,8 +121,8 @@ parseDispatch obj = do
 checkType :: Object -> (Maybe JS.TypeTag -> StatefulParser a) -> StatefulParser a
 checkType obj k = k . JS.parseTypeTag =<< lift (obj .: "type")
 
-parseNull :: Object -> StatefulParser ModuleParts
-parseNull obj -- fail $ "No option for parsing:\n" ++ (T.unpack . decodeUtf8 . encode $  obj)
+parseUnknon :: Object -> StatefulParser ModuleParts
+parseUnknon obj -- fail $ "No option for parsing:\n" ++ (T.unpack . decodeUtf8 . encode $  obj)
  = do
     (typetag :: Maybe String) <- lift $ obj .:? "type"
     case typetag of
@@ -134,9 +134,9 @@ parseNull obj -- fail $ "No option for parsing:\n" ++ (T.unpack . decodeUtf8 . e
                     title
                     mempty
                     mempty
-                    (TR.Ref $ TR.RefPrimitiveType "Data.TransportTypes.Utils.UnitProxy")
+                    (TR.Ref $ TR.RefPrimitiveType "Data.Yaml.Object")
                     enc
-        _ -> fail "This is not null"
+        _ -> fail $ "This is some strange object that I am failed to parse:\n" ++ show obj
 
 parsePrim :: Object -> StatefulParser ModuleParts
 parsePrim obj = do
@@ -167,9 +167,13 @@ parsePrim obj = do
 
 parseEnum :: Object -> StatefulParser ModuleParts
 parseEnum obj = do
-    checkType obj $ \case
-        Just JS.Primitive -> return ()
-        _                 -> fail "Can't parse this as an enum"
+    jsType :: Maybe String <- lift $ obj .:? "type"
+    case jsType of
+        Nothing -> return () -- because it is usually string and nobody writes type there
+        _ ->
+            checkType obj $ \case
+                Just JS.Primitive -> return ()
+                _                 -> fail "Can't parse this as an enum"
     enum <- lift $ obj .: "enum"
     title <- lift $ obj .:? "title"
     let enc = decodeUtf8 . encode $ obj
@@ -262,9 +266,11 @@ parseRecordLike :: Object -> StatefulParser ModuleParts
 parseRecordLike obj = do
     initialTypeRep <-
         checkType obj $ \case
-            Just JS.EnumTag   -> return $ TR.SumType mempty
-            Just JS.ObjectTag -> return $ TR.ProdType mempty
-            _                 -> fail "Can't parse this like a record-like type"
+            Just JS.EnumTag -> return $ TR.SumType mempty
+            Just JS.ObjectTag -> do
+                additionalProperties <- lift $ obj .:? "additionalProperties"
+                return $ TR.ProdType mempty $ fromMaybe False additionalProperties
+            _ -> fail "Can't parse this like a record-like type"
     title <- lift $ obj .:? "title"
     (reqs :: [TR.FieldName]) <- lift $ obj .:? "required" .!= mempty
     (properties :: Map TR.FieldName (Object, Bool)) <-
@@ -314,7 +320,7 @@ postprocessParserResult (ParserResult mp incs) =
         addPrefix p = U.globalPrefix </> p
     go :: ModuleParts -> ModuleParts
     go mp'
-        | TR.ProdType km <- tr = mpu' & declaration .~ TR.ProdType (mapField <$> km)
+        | TR.ProdType km b <- tr = mpu' & declaration .~ TR.ProdType (mapField <$> km) b
         | TR.SumType km <- tr = mpu' & declaration .~ TR.SumType (fmap mapField <$> km)
         | TR.OneOfType km <- tr = mpu' & declaration .~ TR.OneOfType (fmap mapField <$> km)
         | TR.ArrayType tr' <- tr = mpu' & declaration .~ TR.ArrayType (mapTypeRef tr')
@@ -355,8 +361,8 @@ transformStrings transform (ParserResult mp deps) =
         _declaration = transformTypeRep tr
         _json = js
     transformTypeRep :: TR.TypeRep -> TR.TypeRep
-    transformTypeRep (TR.ProdType km) =
-        TR.ProdType $ Map.mapKeys transform . Map.map transformField $ km
+    transformTypeRep (TR.ProdType km b) =
+        TR.ProdType (Map.mapKeys transform . Map.map transformField $ km) b
     transformTypeRep (TR.SumType km) =
         TR.SumType $ Map.mapKeys transform . Map.map (fmap transformField) $ km
     transformTypeRep (TR.OneOfType km) =

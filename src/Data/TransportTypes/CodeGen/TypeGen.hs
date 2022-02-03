@@ -17,9 +17,10 @@ import           Data.Bifunctor (bimap)
 import           Data.String    (fromString)
 import qualified Data.Text      as T
 
-import GHC.SourceGen (App ((@@)), ConDecl', Field, HsDecl', HsModule', HsType', Var (var),
-                      data', field, import', module', newtype', prefixCon, qualified',
-                      recordCon, strict)
+import GHC.SourceGen (App ((@@)), BVar (bvar), ConDecl', Field, HasList (list), HsDecl',
+                      HsModule', HsType', Var (var), conP, data', field, funBind, import',
+                      instance', match, module', newtype', prefixCon, qualified', recordCon,
+                      strict, tyApp, wildP)
 
 import           Control.Monad.Reader                            (Reader, asks, runReader)
 import           Data.Foldable                                   (toList)
@@ -49,7 +50,7 @@ gatherLocalImports prefix tr
     gather :: Set TR.TypeRef -> [String]
     gather set = catMaybes . Set.toList $ Set.map (U.referenceToModuleName prefix) set
 gatherLocalImports prefix tr
-    | (TR.ProdType map') <- tr = gatherProd map'
+    | (TR.ProdType map' _) <- tr = gatherProd map'
     | (TR.SumType map') <- tr = gatherSum map'
     | (TR.OneOfType map') <- tr = gatherSum map'
   where
@@ -90,6 +91,7 @@ buildModule Payload {..} prefix =
         [ buildToJSONInstance typename typeRep
         , buildFromJSONInstance typename typeRep
         , buildToSchemaInstance title prefix typename typeRep
+        , buildIsEmptyInst typename typeRep
         ]
 
 transformField :: U.ModulePrefix -> TR.Field -> Field
@@ -125,7 +127,7 @@ buildTypeDecl (TR.AllOfType set) = do
             []
             [prefixCon (fromString typename) fields]
             U.minDerivingClause
-buildTypeDecl (TR.ProdType map') = do
+buildTypeDecl (TR.ProdType map' b) = do
     typename <- askTypename
     prodCntr <- buildProdCon map'
     return $ data' (fromString typename) [] [prodCntr] U.minDerivingClause
@@ -137,7 +139,13 @@ buildTypeDecl (TR.ProdType map') = do
         return $
             recordCon (fromString typename) $
             bimap (fromString . U.changeReservedNames) (transformField prefix) <$>
-            Map.toList km
+            maybe id (:) additionlProperties (Map.toList km)
+    additionlProperties :: Maybe (U.FieldName, TR.Field)
+    additionlProperties =
+        if b
+            then let valueRef = TR.ExtRef $ TR.RefPrimitiveType "Data.Yaml.Object"
+                  in Just ("additionalProperties", TR.Field True valueRef)
+            else Nothing
 buildTypeDecl tr
     | (TR.SumType map') <- tr = do
         typename <- askTypename
@@ -146,8 +154,7 @@ buildTypeDecl tr
     | (TR.OneOfType map') <- tr = do
         typename <- askTypename
         prefix <- askModulePrefix
-        return $
-            data' (fromString typename) [] (buildSumCon's prefix map') U.minDerivingClause
+        return $ data' (fromString typename) [] (buildSumCon's prefix map') U.minDerivingClause
   where
     buildSumCon's :: U.ModulePrefix -> Map TR.FieldName TR.SumConstr -> [ConDecl']
     buildSumCon's prefix km =
@@ -197,3 +204,39 @@ buildTypeDecl (TR.ConstType v) = do
                 _other     -> typename
     return $
         data' (fromString typename) [] [prefixCon (fromString cntrName) []] U.minDerivingClause
+
+buildIsEmptyInst :: TR.TypeName -> TR.TypeRep -> HsDecl'
+buildIsEmptyInst typename (TR.ProdType map' b)
+    | b || any ((\(TR.Field req _) -> req) . snd) (Map.toList map') =
+        let isEmptyMethod =
+                funBind "isEmpty" $ match [] $ var "Prelude.const" @@ var "Prelude.False"
+         in instance'
+                (var "Data.TransportTypes.Utils.IsEmpty" @@ var (fromString typename))
+                [isEmptyMethod]
+    | otherwise =
+        let bindNames = U.fieldNameToPatName <$> Map.keys map'
+            additionalPropertiesFieldName = "additionalProperties"
+            patternMatch =
+                conP (fromString typename) $
+                let binds = bvar . fromString <$> bindNames
+                 in if b
+                        then (bvar . fromString . U.fieldNameToPatName $
+                              additionalPropertiesFieldName) :
+                             binds
+                        else binds
+            isJustList =
+                list $ fmap (var "Data.Maybe.isJust" @@) (var . fromString <$> bindNames)
+            isEmptyMethod =
+                funBind "isEmpty" $
+                match [patternMatch] $
+                var "Prelude.not" @@
+                (var "Prelude.any" `tyApp` var "[]" @@ var "Prelude.id" @@ isJustList)
+         in instance'
+                (var "Data.TransportTypes.Utils.IsEmpty" @@ var (fromString typename))
+                [isEmptyMethod]
+buildIsEmptyInst typename _ =
+    instance'
+        (var "Data.TransportTypes.Utils.IsEmpty" @@ var (fromString typename))
+        [isEmptyMethod]
+  where
+    isEmptyMethod = funBind "isEmpty" $ match [] $ var "Prelude.const" @@ var "Prelude.False"

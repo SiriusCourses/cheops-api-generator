@@ -19,14 +19,23 @@ import           GHC.SourceGen                           (App (op, (@@)), BVar (
                                                           where', wildP)
 
 buildToJSONInstance :: TR.TypeName -> TR.TypeRep -> HsDecl'
-buildToJSONInstance typename (TR.ProdType map') =
+buildToJSONInstance typename (TR.ProdType map' b) =
     instance'
         (var "Data.Yaml.ToJSON" @@ var (fromString typename))
         [funBind "toJSON" $ match [patternMatch] objectCntr]
   where
+    additionalPropertiesFieldName = "additionalProperties"
+    additionalPropFilter x = not $ b && x == additionalPropertiesFieldName
     patternMatch =
-        conP (fromString typename) $ bvar . fromString . U.fieldNameToPatName <$> Map.keys map'
-    objectCntr = var "Data.Yaml.object" @@ (var "Data.Maybe.catMaybes" @@ list pairs)
+        conP (fromString typename) $
+        let binds = bvar . fromString . U.fieldNameToPatName <$> Map.keys map'
+         in if b
+                then (bvar . fromString . U.fieldNameToPatName $ additionalPropertiesFieldName) :
+                     binds
+                else binds
+    objectCntr =
+        var "Data.Yaml.object" @@
+        addAdditionalPropertiesToObj (var "Data.Maybe.catMaybes" @@ list pairs)
       where
         tupling :: String -> HsExpr'
         tupling key = lambda [bvar "x"] (tuple [string key, var "Data.Yaml.toJSON" @@ var "x"])
@@ -37,7 +46,16 @@ buildToJSONInstance typename (TR.ProdType map') =
                     else var "Prelude.id" @@ var k
         pairs =
             (\(k, TR.Field req _) -> var "Prelude.fmap" @@ tupling k @@ myabeWrap req k) <$>
-            Map.toList map'
+            filter (additionalPropFilter . fst) (Map.toList map')
+    addAdditionalPropertiesToObj objList =
+        if b
+            then let additionalPairs =
+                         var "Data.HashMap.Strict.toList" @@
+                         var
+                             (fromString $
+                              U.fieldNameToPatName additionalPropertiesFieldName)
+                  in op objList "Prelude.++" additionalPairs
+            else objList
 buildToJSONInstance typename (TR.SumType map') =
     instance'
         (var "Data.Yaml.ToJSON" @@ var (fromString typename))

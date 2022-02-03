@@ -167,10 +167,12 @@ defaultImportNames =
     , "Data.Maybe"
     , "Data.Bifunctor"
     , "Data.Foldable"
-    , "Data.TransportTypes.Utils"
+    , "Data.Map.Strict"
+    , "Data.HashMap.Strict"
     , "Data.Swagger"
     , "Data.Swagger.Internal.Schema"
     , "Data.Proxy"
+    , "Data.TransportTypes.Utils"
     ]
 
 -- | Constant for import in Spec.hs
@@ -184,6 +186,7 @@ perTestImports =
     , "Prototypes"
     , "System.IO"
     , "Data.TransportTypes.Utils"
+    , "Data.TransportTypes.ArbitraryInstanceForValue"
     , "Test.QuickCheck"
     , "Test.QuickCheck.Instances"
     , "Test.QuickCheck.Monadic"

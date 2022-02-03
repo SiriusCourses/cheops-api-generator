@@ -24,7 +24,7 @@ replaceUnitProxy x                                     = x
 
 buildToSchemaInstance ::
        Maybe U.Title -> U.ModulePrefix -> U.QualTypeName -> TR.TypeRep -> HsDecl'
-buildToSchemaInstance title prefix qualTypename (TR.ProdType map') =
+buildToSchemaInstance title prefix qualTypename (TR.ProdType map' b) =
     instance'
         (var "Data.Swagger.ToSchema" @@ var (fromString qualTypename))
         [funBind "declareNamedSchema" $ match [bvar "_proxy"] bdy]
@@ -55,7 +55,15 @@ buildToSchemaInstance title prefix qualTypename (TR.ProdType map') =
                   "Control.Lens.?~"
                   (var "Data.Swagger.SwaggerObject") `amp`
               op (var "Data.Swagger.properties") "Control.Lens..~" (list propertiesList) `amp`
-              op (var "Data.Swagger.required") "Control.Lens..~" (list requiredList)))
+              op (var "Data.Swagger.required") "Control.Lens..~" (list requiredList) `additionalProperties`
+              b))
+        additionalProperties obj b' =
+            obj `amp`
+            if b'
+                then op (var "Data.Swagger.additionalProperties")
+                         "Control.Lens.?~"
+                         (var "Data.Swagger.AdditionalPropertiesAllowed" @@ var "Prelude.True")
+                else var "Prelude.id"
 buildToSchemaInstance title _ typename (TR.SumType map') =
     instance'
         (var "Data.Swagger.ToSchema" @@ var (fromString typename))
@@ -189,7 +197,8 @@ buildToSchemaInstance title prefix typename (TR.NewType tr') =
     titleLit = maybe (var "Prelude.Nothing") (\x -> var "Prelude.Just" @@ string x) title
     proxy =
         var "Data.Proxy.Proxy" GHC.SG.@::@
-        (var "Data.Proxy.Proxy" @@ var (fromString . replaceUnitProxy $ U.referenceToQualTypeName prefix tr'))
+        (var "Data.Proxy.Proxy" @@
+         var (fromString . replaceUnitProxy $ U.referenceToQualTypeName prefix tr'))
     bdy =
         var "Prelude.return" @@
         ((var "Data.Swagger.Internal.Schema.toNamedSchema" @@ proxy) `amp`

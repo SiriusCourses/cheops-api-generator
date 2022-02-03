@@ -8,7 +8,7 @@ import qualified Data.Text   as T
 
 import GHC.SourceGen (App ((@@)), BVar (bvar), HasList (list), HsDecl', HsModule', Var (var),
                       case', conP, do', funBind, import', instance', int, lambda, match,
-                      matchGRHSs, module', op, qualified', recordUpd, rhs, stmt, string,
+                      matchGRHSs, module', op, qualified', recordUpd, rhs, stmt, string, tyApp,
                       typeSig, valBind, where', (-->), (<--))
 
 import           Data.List                               (intersperse)
@@ -18,10 +18,10 @@ import           Data.TransportTypes.CodeGen.TypeGen     (gatherLocalImports)
 import qualified Data.TransportTypes.TypeRep             as TR
 
 testName :: String
-testName = "prop_encdecInv"
+testName = "prop_validationTest"
 
 antherTestName :: String
-antherTestName = "prop_decencInv"
+antherTestName = "prop_decencTest"
 
 buildSpec :: [FilePath] -> HsModule'
 buildSpec paths =
@@ -52,15 +52,17 @@ buildSpec paths =
             stmt (var "FFI.start_python") :
             (bvar "pb" <-- progressBar) : testCalls ++ [stmt $ var "FFI.end_python"]
           where
-            testCalls =
-                intersperse (stmt $ var "System.ProgressBar.incProgress" @@ var "pb" @@ int 1) $
+            testCalls
+                --intersperse (stmt $ var "System.ProgressBar.incProgress" @@ var "pb" @@ int 1) $
+             =
                 (\t ->
                      stmt $
                      do'
+                        --    stmt $
+                        --    var "Test.QuickCheck.quickCheckWith" @@ var "args" @@
+                        --    var (fromString $ t ++ "." ++ testName)
+                        --  ,
                          [ stmt $
-                           var "Test.QuickCheck.quickCheckWith" @@ var "args" @@
-                           var (fromString $ t ++ "." ++ testName)
-                         , stmt $
                            var "Test.QuickCheck.quickCheckWith" @@ var "args" @@
                            var (fromString $ t ++ "." ++ antherTestName)
                          ]) <$>
@@ -103,21 +105,22 @@ buildTest Payload {..} prefix =
         instance'
             (var "Test.QuickCheck.Arbitrary" @@ (var . fromString $ qualTypename))
             [funBind "arbitrary" $ match [] (var "Generic.Random.genericArbitraryU")]
-    (testSig, test) = buildtoJSONInvTest qualTypename typeRep
-    (antoherTestSig, antoherTest) = buildFromJSONInvTest qualTypename typeRep
+    (testSig, test) = buildtoValidationTest qualTypename typeRep
+    (antoherTestSig, antoherTest) = buildEncodingInvariantTest qualTypename typeRep
     (rawschemaLitSig, rawschemaLit) = buildschemaLiteral json
 
-buildtoJSONInvTest :: TR.TypeName -> TR.TypeRep -> (HsDecl', HsDecl')
-buildtoJSONInvTest qualTypename typeRep = (testSig, test)
+buildtoValidationTest :: TR.TypeName -> TR.TypeRep -> (HsDecl', HsDecl')
+buildtoValidationTest qualTypename typeRep = (testSig, test)
   where
-    propName = antherTestName
+    propName = testName
     testSig =
         typeSig (fromString propName) $
         var (fromString qualTypename) --> var "Test.QuickCheck.Property"
     test = funBind (fromString propName) $ matchGRHSs [] $ rhs testBdy `where'` [precondition]
       where
         testBdy =
-            var "Prototypes.prop_toJSONInv_prot" @@ string qualTypename @@ var "precondition" @@
+            var "Prototypes.validationTest_prototype" @@ string qualTypename @@
+            var "precondition" @@
             var "rawSchema"
         precondition =
             valBind "precondition" $
@@ -130,22 +133,22 @@ buildtoJSONInvTest qualTypename typeRep = (testSig, test)
                         case'
                             (var "x")
                             [ match [patternMatch] $
-                              var "Prelude.any" @@ var "Prelude.id" @@
+                              var "Prelude.any" `tyApp` var "[]" @@ var "Prelude.id" @@
                               list
                                   ((var "Data.Maybe.isJust" @@) . var . fromString <$>
                                    bindNames)
                             ]
                 _ -> var "Prelude.const" @@ var "Prelude.True"
 
-buildFromJSONInvTest :: TR.TypeName -> TR.TypeRep -> (HsDecl', HsDecl')
-buildFromJSONInvTest qualTypename _ = (testSig, test)
+buildEncodingInvariantTest :: TR.TypeName -> TR.TypeRep -> (HsDecl', HsDecl')
+buildEncodingInvariantTest qualTypename _ = (testSig, test)
   where
-    propName = testName
+    propName = antherTestName
     testSig =
         typeSig (fromString propName) $ var (fromString qualTypename) --> var "Prelude.Bool"
     test = funBind (fromString propName) $ match [] testBdy
       where
-        testBdy = var "Prototypes.prop_fromJSONInv_prot"
+        testBdy = var "Prototypes.encodingDecodingInvariantTest_prototype"
 
 buildschemaLiteral :: T.Text -> (HsDecl', HsDecl')
 buildschemaLiteral json = (rawschemaLitSig, rawschemaLit)
