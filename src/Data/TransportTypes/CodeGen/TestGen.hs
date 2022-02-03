@@ -52,9 +52,8 @@ buildSpec paths =
             stmt (var "FFI.start_python") :
             (bvar "pb" <-- progressBar) : testCalls ++ [stmt $ var "FFI.end_python"]
           where
-            testCalls
-                --intersperse (stmt $ var "System.ProgressBar.incProgress" @@ var "pb" @@ int 1) $
-             =
+            testCalls =
+                intersperse (stmt $ var "System.ProgressBar.incProgress" @@ var "pb" @@ int 1) $
                 (\t ->
                      stmt $
                      do'

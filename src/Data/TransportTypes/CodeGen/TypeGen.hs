@@ -20,7 +20,7 @@ import qualified Data.Text      as T
 import GHC.SourceGen (App ((@@)), BVar (bvar), ConDecl', Field, HasList (list), HsDecl',
                       HsModule', HsType', Var (var), conP, data', field, funBind, import',
                       instance', match, module', newtype', prefixCon, qualified', recordCon,
-                      strict, tyApp, wildP)
+                      strict, tyApp)
 
 import           Control.Monad.Reader                            (Reader, asks, runReader)
 import           Data.Foldable                                   (toList)
