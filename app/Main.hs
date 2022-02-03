@@ -30,7 +30,6 @@ import           Data.Either                                  (fromRight, isLeft
 import           Data.Maybe                                   (fromJust, isJust)
 import           Data.TransportTypes.ModuleParts              (ModuleParts (..))
 import           Data.TransportTypes.Parsing.IncludeInjection (RepositoryRoot (..),
-                                                               additionalPropertiesDropper,
                                                                eventsFromFile,
                                                                itemCountDropper)
 import qualified Data.TransportTypes.TypeRep                  as TR
@@ -63,7 +62,7 @@ main = do
                         res <-
                             decodeHelper @ParserResult $
                             (eventsFromFile (RepositoryRoot crr) f .|
-                             additionalPropertiesDropper .|
+                             -- additionalPropertiesDropper .|
                              itemCountDropper)
                         liftIO $ PB.incProgress pb 1
                         return res)
