@@ -49,7 +49,6 @@ collectFiles path = do
 
 collectMarkedFiles :: FilePath -> IO (Map.Map FilePath String)
 collectMarkedFiles fp = do
-    putStrLn "Parsing overwritten files!"
     mp <- Map.toList <$> decodeFileThrow @IO @(Map.Map FilePath String) fp
     Map.fromList <$> traverse (\(k, v) -> (, v) <$> canonicalizePath k) mp
 
@@ -62,7 +61,7 @@ main = do
             CLI.Dir s  -> collectFiles s
     crr <- canonicalizePath chRoot
     mrkd <- maybe (return mempty) collectMarkedFiles chOverwritten
-    unless chDebug $
+    when chDebug $
         if null mrkd
             then putStrLn "No files are overwritten"
             else do
