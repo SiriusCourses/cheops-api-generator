@@ -22,8 +22,10 @@ import qualified CLI
 import           Data.TransportTypes.CodeGen (buildModules, buildTests)
 import           Data.TransportTypes.Parsing (ParserResult (..), dashesToUnderscore,
                                               postprocessParserResult, transformStrings)
+import qualified ProjectGen
 
 import           Conduit                                      (liftIO)
+import           Control.Monad.Reader                         (runReaderT)
 import           Data.Conduit                                 ((.|))
 import           Data.Either                                  (fromRight, isLeft, isRight,
                                                                lefts)
@@ -61,8 +63,7 @@ main = do
                    (\f -> do
                         res <-
                             decodeHelper @ParserResult $
-                            (eventsFromFile (RepositoryRoot crr) f .|
-                             itemCountDropper)
+                            (eventsFromFile (RepositoryRoot crr) f .| itemCountDropper)
                         liftIO $ PB.incProgress pb 1
                         return res)
                    files
@@ -121,6 +122,13 @@ main = do
                                 Data.Bifunctor.first (\x -> chOutput </> "test" </> x) <$>
                                 Map.toList km
                         saveModules (Just pb) load
+            putStrLn "Creating cabal project..."
+            flip runReaderT chOutput $ do
+                ProjectGen.transferMissingSources
+                ProjectGen.transferCBits
+                ProjectGen.createCabalFile
+                ProjectGen.cleanUpStackFiles
+            putStrLn "Cabal project is done!"
   where
     combineParserResults :: ParserResult -> (FilePath, ParserResult) -> ParserResult
     combineParserResults (ParserResult mainType deps) (p, ParserResult mainType' deps') =
