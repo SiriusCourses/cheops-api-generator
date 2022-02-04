@@ -16,21 +16,19 @@ pip install jsonschema
 
 ## How to genereate types
 
-It is a must for `genereated-api` directory to be inside this project, due to dependance on `AllOf`, `AnyOf` and `OneOf` implementation from here.  
-
 ```bash
-mkdir generated-api #output directory
+mkdir path/to/generated-api #output directory
 stack build # builds code generation tool
-stack exec -- config-generation-exe --input "path/to/api/root" --output "./generated-api" --repository_root "path/to/api/repository/root"
+stack exec -- config-generation-exe --input "path/to/api/root" --output "path/to/generated-api" --repository_root "path/to/api/repository/root"
 ```
-Option `repository_root` is needed if there are absolute paths relative to some direcotory in json-sechema includes. In that case this direcory must be supplied in `--reposotory_root` argument.
+Option `repository_root` is needed if there are absolute paths relative to some directory in json-schema includes. In that case this direcory must be supplied in `--reposotory_root` argument.
 
 There are some more options, you can look at them by 
 ```bash
 stack exec -- config-generation-exe --help
 ```
 
-Now there is `generated-api/src` and `generated-api/test` directories with types and tests for them repectfully.
+Now there is a cabal project at `path/to/generated-api` with `test` and `src` directories and with `cbits`
 
 ## How to run generated tests
 
@@ -62,34 +60,38 @@ extern "C"{
     void end_python();
 };
 ```
-See `test/Spec.hs` to use example. 
+See `test/Spec.hs` to for an example(it is commented out now). 
 
 ### Building cbits
 
-There is pybind11 in use, so you need to install everything it needs. However there is no need to install `pybind`, it will fetch itself locally during `cmake ..`
+There is pybind11 in use, so you need to install everything it needs. However there is no need to install `pybind11`, it will fetch itself locally during `cmake ..`
 
 ```bash
-cd cbits/c_validate
+cd path/to/generated-api/cbits/c_validate
 mkdir cmake-build-debug && cd cmake-build-debug
 cmake .. && make
 ```
 ```bash
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/abolute/path/to/cbits/c_validate/cmake-build-debug
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:absolute/path/to/generated-api/cbits/c_validate/cmake-build-debug
 ```
 
-### Building Haskell 
-
-1. Add `generated-api/src` to `library.source-dirs` in `package.yaml`
-2. Add `generated-api/test` to `tests.source-dirs` in `package.yaml`
-3. Comment out `tests.source-dirs.test` item from `package.yaml`
-4. Optional: add `-Wno-unused-imports` and `-fno-warn-orphans` to `package.yaml`
+### Building generated haskell types and tests
+------------
+### Types
 ```bash
-stack test
+cabal build
+```
+### Test
+```bash
+cabal v2-test --extra-lib-dirs=absolute/path/to/generated-api/cbits/c_validate/cmake-build-debug
 ```
 Prepare for a long wait.
 
 
 ### How does it work
+
+-----------------
+
 
 In this part there will be overview of what is going on when this tool is working. I will try my best to specify all corner cases, bug and weird behaviours. At first let me say that there are some.
 
