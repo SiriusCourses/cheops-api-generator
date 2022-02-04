@@ -9,14 +9,13 @@ Module      : Data.TransportTypes.Parsing
 
 Module that does parsing via 'fromJSON' instance of 'ParserResult'
 -}
-
-module Data.TransportTypes.Parsing(
-    ParserResult(..),
+module Data.TransportTypes.Parsing
+    ( ParserResult(..)
     -- * Postprocess utility
-    postprocessParserResult,
-    transformStrings,
-    dashesToUnderscore
-) where
+    , postprocessParserResult
+    , transformStrings
+    , dashesToUnderscore
+    ) where
 
 import Control.Lens (makeLenses, (%~), (&), (.~), (<&>), (^.))
 
@@ -43,16 +42,16 @@ import           Data.Foldable                           (asum)
 import qualified Data.Text                               as T
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import qualified Data.TransportTypes.JSTypes             as JS
-import           Data.TransportTypes.ModuleParts         (ModuleParts (..), declaration, externalDeps, jsTitle)
+import           Data.TransportTypes.ModuleParts         (ModuleParts (..), declaration,
+                                                          externalDeps, jsTitle)
 import qualified Data.TransportTypes.ModuleParts         as MP
 import qualified Data.TransportTypes.Parsing.LCP         as LCP
 import qualified Data.TransportTypes.TypeRep             as TR
 
+-- | Filepaths and their parsed content that parser had already met
 newtype ParserState =
     ParserState
-        {
-      -- | filepaths and their parsed content that parser had already met
-      _cachedIncludes :: Map FilePath ModuleParts
+        { _cachedIncludes :: Map FilePath ModuleParts
         }
     deriving (Show, Eq, Generic)
     deriving newtype (Semigroup, Monoid)
@@ -93,7 +92,8 @@ parseDispatch obj = do
     maybeOrigin <- lift $ obj .:? "haskell/origin"
     title <- lift $ obj .:? "title"
     retrieveCachedInclude title maybeOrigin . asum $
-        [ parseOneOf
+        [ parseOverwritten
+        , parseOneOf
         , parseAnyOf
         , parseAllOf
         , parseConst
@@ -129,6 +129,13 @@ parseDispatch obj = do
 
 checkType :: Object -> (Maybe JS.TypeTag -> StatefulParser a) -> StatefulParser a
 checkType obj k = k . JS.parseTypeTag =<< lift (obj .: "type")
+
+parseOverwritten :: Object -> StatefulParser ModuleParts
+parseOverwritten obj = do
+    (t :: String) <- lift $ obj .: "haskell/overwrite_type"
+    title <- lift $ obj .:? "title"
+    let enc = decodeUtf8 . encode $ obj
+    return $ ModuleParts title mempty mempty (TR.Ref $ TR.RefPrimitiveType t) enc
 
 parseUnknon :: Object -> StatefulParser ModuleParts
 parseUnknon obj -- fail $ "No option for parsing:\n" ++ (T.unpack . decodeUtf8 . encode $  obj)
@@ -171,8 +178,8 @@ parsePrim obj = do
                 JS.PrimStringTag -> fromMaybe "Data.Text.Text" tInfo
                 JS.PrimIntTag    -> fromMaybe "Prelude.Int" tInfo
                 JS.PrimDoubleTag -> fromMaybe "Data.Scientific.Scientific" tInfo
-                JS.PrimBoolTag   -> "Prelude.Bool"
-                JS.PrimNullTag   -> "Data.TransportTypes.Utils.UnitProxy"
+                JS.PrimBoolTag   -> fromMaybe "Prelude.Bool" tInfo
+                JS.PrimNullTag   -> fromMaybe "Data.TransportTypes.Utils.UnitProxy" tInfo
 
 parseEnum :: Object -> StatefulParser ModuleParts
 parseEnum obj = do

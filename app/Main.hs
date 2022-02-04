@@ -8,7 +8,7 @@ import qualified Data.Bifunctor
 import           Data.Foldable  (Foldable (foldl'), for_, traverse_)
 import qualified Data.Map       as Map
 
-import Data.Yaml (decodeHelper)
+import Data.Yaml (decodeFileThrow, decodeHelper)
 
 import System.Directory     (canonicalizePath, createDirectoryIfMissing)
 import System.FilePath      (splitDirectories, takeDirectory, (</>))
@@ -47,6 +47,12 @@ collectFiles path = do
     containsSchema :: FilePath -> Bool
     containsSchema path' = "schema" `elem` (splitDirectories . takeDirectory $ path')
 
+collectMarkedFiles :: FilePath -> IO (Map.Map FilePath String)
+collectMarkedFiles fp = do
+    putStrLn "Parsing overwritten files!"
+    mp <- Map.toList <$> decodeFileThrow @IO @(Map.Map FilePath String) fp
+    Map.fromList <$> traverse (\(k, v) -> (, v) <$> canonicalizePath k) mp
+
 main :: IO ()
 main = do
     CLI.CheckedInput {..} <- CLI.getCLIArgs
@@ -55,6 +61,13 @@ main = do
             CLI.File s -> singleton <$> canonicalizePath s
             CLI.Dir s  -> collectFiles s
     crr <- canonicalizePath chRoot
+    mrkd <- maybe (return mempty) collectMarkedFiles chOverwritten
+    unless chDebug $
+        if null mrkd
+            then putStrLn "No files are overwritten"
+            else do
+                putStrLn "Overwritten files:"
+                print mrkd
     content <-
         do putStrLn "Parsing files:"
            pb <- PB.newProgressBar PB.defStyle 10 (PB.Progress 0 (length files) ())
@@ -63,7 +76,7 @@ main = do
                    (\f -> do
                         res <-
                             decodeHelper @ParserResult $
-                            (eventsFromFile (RepositoryRoot crr) f .| itemCountDropper)
+                            (eventsFromFile (RepositoryRoot crr) mrkd f .| itemCountDropper)
                         liftIO $ PB.incProgress pb 1
                         return res)
                    files

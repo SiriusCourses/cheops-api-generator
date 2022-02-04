@@ -31,6 +31,7 @@ data Input =
         , repository_root :: FilePath <!> "/" <?> "Specifies root for absolute paths, defaults to system root"
         , no_modules :: Bool <?> "If enabled no modules are built"
         , no_tests :: Bool <?> "If enabled no tests are built"
+        , overwritten_files :: FilePath <!> "" <?> "Yaml file where one may specify yaml schemas to overwrite"
         }
     deriving (Generic, Show)
 
@@ -46,7 +47,7 @@ data CheckedInput =
     CheckedInput
         { 
       -- | Same value as passed in command line arguments
-            chPrint_internal_repr :: Bool
+        chPrint_internal_repr :: Bool
       -- | Same value as passed in command line arguments
         , chDebug               :: Bool
       -- | Input path is chekced for existence and is it a directory or a file
@@ -55,8 +56,12 @@ data CheckedInput =
         , chOutput              :: FilePath
       -- | Optional root of a repository where json specification is stored. Very useful if there are absolute paths relative to the this root.
         , chRoot                :: FilePath
+      -- | Option that disables type generating
         , chNoModules           :: Bool
+      -- | Option that disables test generating
         , chNoTests             :: Bool
+      -- | Option that points to the file with overwritten schemas
+        , chOverwritten         :: Maybe FilePath
         }
 
 -- | Fucntion for getting checked input from command line
@@ -82,6 +87,11 @@ checkArgs Input {..} = do
         if isDirectory outputStatus
             then canonicalizePath . unDefValue . unHelpful $ output
             else fail "output should be a directory"
+    overWrittenFileExists <- getFileStatus . unDefValue . unHelpful $ overwritten_files
+    let chOverwritten =
+            if isRegularFile overWrittenFileExists
+                then Just . unDefValue . unHelpful $ overwritten_files
+                else Nothing
     return $
         CheckedInput
             (unHelpful print_internal_repr)
@@ -91,3 +101,4 @@ checkArgs Input {..} = do
             (unDefValue . unHelpful $ repository_root)
             (unHelpful no_modules)
             (unHelpful no_tests)
+            chOverwritten

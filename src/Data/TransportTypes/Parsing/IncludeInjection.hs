@@ -3,7 +3,6 @@ Module      :  Data.TransportTypes.Parsing.IncludeInjection
 
 Module with functions for editing event stream from yaml file.
 -}
-
 module Data.TransportTypes.Parsing.IncludeInjection where
 
 import Control.Exception (handleJust, throwIO)
@@ -23,23 +22,32 @@ import           Conduit           (MonadIO (liftIO), MonadResource, await)
 import           Data.Conduit      (ConduitM, awaitForever, yield, (.|))
 import qualified Data.Conduit.List as CL
 
-import System.Directory (canonicalizePath, doesFileExist)
-import System.FilePath  (isAbsolute, joinPath, splitPath, takeDirectory, (</>))
-import System.IO.Error  (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
+import qualified Data.ByteString.UTF8
+import           Data.Map             ((!?))
+import qualified Data.Map.Strict      as Map
+import           System.Directory     (canonicalizePath, doesFileExist)
+import           System.FilePath      (isAbsolute, joinPath, splitPath, takeDirectory, (</>))
+import           System.IO.Error      (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
 
 -- | Not to ever confuse it with something else
 newtype RepositoryRoot =
     RepositoryRoot FilePath
 
 -- | Parses yaml and unwraps includes. Also is trying to reroot missing paths. If you see an error that file with duplicated path prefix is not found it means that this function did not find it and faild to reroot it.
-eventsFromFile :: MonadResource m => RepositoryRoot -> FilePath -> ConduitM i Event m ()
-eventsFromFile (RepositoryRoot crr) = go [] []
+eventsFromFile ::
+       MonadResource m
+    => RepositoryRoot
+    -> Map.Map FilePath String
+    -> FilePath
+    -> ConduitM i Event m ()
+eventsFromFile (RepositoryRoot crr) markedFiles = go [] []
   where
     go :: MonadResource m => [Event] -> [FilePath] -> FilePath -> ConduitM i Event m ()
     go injectedEvents seen fp = do
         cfp <- liftIO $ handleNotFound $ canonicalizePath =<< rerootPath Nothing fp
         when (cfp `elem` seen) $ liftIO $ throwIO CyclicIncludes
-        Y.decodeFile cfp .| conduitInjector injectedEvents .|
+        let isOverwritten = markedFiles !? cfp
+        Y.decodeFile cfp .| injectOverwrite isOverwritten .| conduitInjector injectedEvents .|
             (do awaitForever $ \event ->
                     case event of
                         EventScalar f (UriTag "!include") _ _ -> do
@@ -101,6 +109,20 @@ eventsFromFile (RepositoryRoot crr) = go [] []
                 yield one'
                 -- recourse on yourself
                 conduitInjector els
+    injectOverwrite :: (Monad m) => Maybe String -> ConduitM Event Event m ()
+    injectOverwrite Nothing = awaitForever yield
+    injectOverwrite p@(Just t) = do
+        event <- await
+        case event of
+            Nothing -> return ()
+            Just m@EventMappingStart {} -> do
+                yield $ m
+                yield $ EventScalar "haskell/overwrite_type" NoTag Plain Nothing
+                yield $ EventScalar (Data.ByteString.UTF8.fromString t) NoTag Plain Nothing
+                awaitForever yield
+            Just other -> do
+                yield other
+                injectOverwrite p
 
 -- | Drops "minItems" field and "maxItems" field. Used to refine test results.
 itemCountDropper :: (Monad m) => ConduitM Event Event m ()
