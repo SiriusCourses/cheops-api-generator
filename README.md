@@ -23,6 +23,10 @@ stack exec -- config-generation-exe --input "path/to/api/root" --output "path/to
 ```
 Option `repository_root` is needed if there are absolute paths relative to some directory in json-schema includes. In that case this direcory must be supplied in `--reposotory_root` argument.
 
+There is an option to overwrite some yaml schemas with particular type. If you want to do so, then specify yaml file after `--overwritten_files` which contains paths and types. As an example you might take `overwritten.yaml` file in this repository
+
+If you desire you can add `haskell/overwrite_type` field to your `yaml` file and it will be treated as specified in  `--overwritten_files` option.
+
 There are some more options, you can look at them by 
 ```bash
 stack exec -- config-generation-exe --help
@@ -103,11 +107,12 @@ The tool starts with parsing of all yamls in specified directory. The first gotc
 
 Parsing is done by `libyaml` via some conduit machnery for `include` inlining. During ths phase several things are done:
 
-  * all `!include path` are inclined
-  * as `!include path` are inclined new field is injected to remeber where it is inlined from.
+  * all `!include path` are inlined
+  * as `!include path` are inlined new field `haskell/origin` is injected to remeber path where it is inlined from.
   * all `maxItems` and `minItems` fields are dropped
   * all `additionalProperties` fields are dropped
   * all invalid paths are treated as from `repository_root`
+  * adds `haskell/overwrite_type` fields to w.r.t `--overwritten_files` option
 
 `GOTCHA`: If you are getting `/path/to/yaml/path/to/yaml/file.yaml is not found` that usually means that you misspelled `path/to/yaml/file.yaml` in the first place. As it was checked before appending path to the repository root.
 
