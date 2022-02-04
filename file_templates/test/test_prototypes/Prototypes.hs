@@ -5,7 +5,7 @@
 {-# HLINT ignore "Use camelCase" #-}
 module Prototypes where
 
-import Control.Monad       (unless)
+import Control.Monad (unless)
 
 import qualified Codec.Binary.UTF8.String
 import           Data.ByteString          (ByteString, unpack)
@@ -22,13 +22,14 @@ import Debug.Trace (trace)
 
 encodingDecodingInvariantTest_prototype ::
        forall a. (ToJSON a, FromJSON a, Eq a, Show a)
-    => a
+    => String
+    -> a
     -> Bool
-encodingDecodingInvariantTest_prototype sample
+encodingDecodingInvariantTest_prototype msg sample
     | Right True <- (== sample) <$> recodedSample = True
     | otherwise =
         trace
-            (">>> Failed test!!!\n" ++
+            (">>> Failed test" ++ msg ++ "\n" ++
              "sample:\n" ++
              show sample ++
              "\nencoding:\n" ++
