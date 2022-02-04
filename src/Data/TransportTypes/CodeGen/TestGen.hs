@@ -115,7 +115,7 @@ buildtoValidationTest qualTypename typeRep = (testSig, test)
             valBind "precondition" $
             case typeRep of
                 TR.AnyOfType set' ->
-                    let bindNames = (\n -> "part" ++ show n) <$> [1 .. Set.size set']
+                    let bindNames = (\n -> "part" ++ show n) <$> [1 .. length set']
                         patternMatch =
                             conP (fromString qualTypename) $ bvar . fromString <$> bindNames
                      in lambda [bvar "x"] $
@@ -137,7 +137,7 @@ buildEncodingInvariantTest qualTypename _ = (testSig, test)
         typeSig (fromString propName) $ var (fromString qualTypename) --> var "Prelude.Bool"
     test = funBind (fromString propName) $ match [] testBdy
       where
-        testBdy = var "Prototypes.encodingDecodingInvariantTest_prototype"
+        testBdy = var "Prototypes.encodingDecodingInvariantTest_prototype" @@ string qualTypename
 
 buildschemaLiteral :: T.Text -> (HsDecl', HsDecl')
 buildschemaLiteral json = (rawschemaLitSig, rawschemaLit)

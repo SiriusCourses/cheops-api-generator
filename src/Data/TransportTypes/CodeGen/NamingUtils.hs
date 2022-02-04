@@ -177,7 +177,7 @@ defaultImportNames =
 
 -- | Constant for import in Spec.hs
 specImports :: [String]
-specImports = ["Test.QuickCheck"]
+specImports = ["Test.QuickCheck", "FFI"]
 
 -- | Constant for imports in each test
 perTestImports :: [String]

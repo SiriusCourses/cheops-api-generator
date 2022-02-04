@@ -3,7 +3,6 @@ module Data.TransportTypes.CodeGen.TypeGen.InstanceGen.ToJson
     ) where
 
 import qualified Data.Map.Strict                         as Map
-import qualified Data.Set                                as Set
 import           Data.String                             (IsString (fromString))
 import qualified Data.Text                               as T
 import           Data.Text.Encoding                      (decodeUtf8)
@@ -59,7 +58,7 @@ buildToJSONInstance typename (TR.ProdType map' b) =
 buildToJSONInstance typename (TR.SumType map') =
     instance'
         (var "Data.Yaml.ToJSON" @@ var (fromString typename))
-        [funBinds "toJSON" $ uncurry mkClause <$> Map.toList map']
+        [funBinds "toJSON" $ uncurry mkClause <$> map']
     -- fields are ignored as there is no sum type in json(besides OneOf which is represented by it's own tag).
     -- in future in migth be wise to make this other cases unrepresentable.
   where
@@ -72,7 +71,7 @@ buildToJSONInstance typename (TR.SumType map') =
 buildToJSONInstance typename (TR.OneOfType map') =
     instance'
         (var "Data.Yaml.ToJSON" @@ var (fromString typename))
-        [funBinds "toJSON" $ uncurry mkClause <$> Map.toList map']
+        [funBinds "toJSON" $ uncurry mkClause <$> map']
     -- flds are treated if they have at most one entity as it is impossible to do otherwise in json
     -- in future in migth be wise to make other case unrepresentable.
   where
@@ -83,11 +82,11 @@ buildToJSONInstance typename (TR.OneOfType map') =
             match [conP (fromString . U.fieldNameToSumCon $ optName) [bvar "x"]] $
             var "Data.Yaml.toJSON" @@ var "x"
 buildToJSONInstance typename (TR.AnyOfType set')
-    | Set.null set' =
+    | null set' =
         instance'
             (var "Data.Yaml.ToJSON" @@ var (fromString typename))
             [funBind "toJSON" $ match [bvar "x"] (var . fromString $ typename)] -- maybe null is better?
-    | Set.size set' == 1 =
+    | length set' == 1 =
         instance'
             (var "Data.Yaml.ToJSON" @@ var (fromString typename))
             [ funBind "toJSON" $
@@ -101,7 +100,7 @@ buildToJSONInstance typename (TR.AnyOfType set')
             ]
     | otherwise = instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename)) [decl]
   where
-    bindNames = (\n -> "part" ++ show n) <$> [1 .. Set.size set']
+    bindNames = (\n -> "part" ++ show n) <$> [1 .. length set']
     patternMatch = conP (fromString typename) $ bvar . fromString <$> bindNames
     decl =
         funBind "toJSON" $
@@ -140,11 +139,11 @@ buildToJSONInstance typename (TR.AnyOfType set')
                            ])
                 ]
 buildToJSONInstance typename (TR.AllOfType set)
-    | Set.null set =
+    | null set =
         instance'
             (var "Data.Yaml.ToJSON" @@ var (fromString typename))
             [funBind "toJSON" $ match [wildP] $ string typename]
-    | Set.size set == 1 =
+    | length set == 1 =
         instance'
             (var "Data.Yaml.ToJSON" @@ var (fromString typename))
             [ funBind "toJSON" $
@@ -152,7 +151,7 @@ buildToJSONInstance typename (TR.AllOfType set)
             ]
     | otherwise = instance' (var "Data.Yaml.ToJSON" @@ var (fromString typename)) [decl]
   where
-    bindNames = (\x -> "opt" ++ show x) <$> [1 .. (Set.size set)]
+    bindNames = (\x -> "opt" ++ show x) <$> [1 .. (length set)]
     decl =
         funBind "toJSON" $
         matchGRHSs [conP (fromString typename) (bvar . fromString <$> bindNames)] $

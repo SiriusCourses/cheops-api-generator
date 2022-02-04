@@ -21,7 +21,6 @@ import GHC.Generics (Generic)
 import Data.Yaml (ToJSON, Value)
 
 import Data.Map (Map)
-import Data.Set (Set)
 
 type ModuleName = String
 
@@ -63,10 +62,10 @@ newtype SumConstrF a =
 
 data TypeRep
     = ProdType (Map FieldName Field) Bool
-    | SumType (Map FieldName SumConstr)
-    | OneOfType (Map FieldName SumConstr)
-    | AnyOfType (Set TypeRef)
-    | AllOfType (Set TypeRef)
+    | SumType [(FieldName, SumConstr)]
+    | OneOfType [(FieldName, SumConstr)]
+    | AnyOfType [TypeRef]
+    | AllOfType [TypeRef]
     | ArrayType TypeRef
     | NewType TypeRef
     | Ref NonLocalRef

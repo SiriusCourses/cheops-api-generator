@@ -7,13 +7,12 @@ import Control.Monad ((<=<))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe      (catMaybes, mapMaybe)
-import           Data.Set        (Set)
 import qualified Data.Set        as Set
 
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import qualified Data.TransportTypes.TypeRep             as TR
 
-import           Data.Bifunctor (bimap)
+import           Data.Bifunctor (Bifunctor (second), bimap)
 import           Data.String    (fromString)
 import qualified Data.Text      as T
 
@@ -47,15 +46,15 @@ gatherLocalImports prefix tr
     | TR.AllOfType set <- tr = gather set
     | TR.AnyOfType set <- tr = gather set
   where
-    gather :: Set TR.TypeRef -> [String]
-    gather set = catMaybes . Set.toList $ Set.map (U.referenceToModuleName prefix) set
+    gather :: [TR.TypeRef] -> [String]
+    gather set = mapMaybe (U.referenceToModuleName prefix) set
 gatherLocalImports prefix tr
     | (TR.ProdType map' _) <- tr = gatherProd map'
     | (TR.SumType map') <- tr = gatherSum map'
     | (TR.OneOfType map') <- tr = gatherSum map'
   where
-    gatherSum :: Map U.FieldName TR.SumConstr -> [TR.ModuleName]
-    gatherSum = catMaybes . snd <=< Map.toList . fmap TR.unSumConstr . Map.map (fmap go)
+    gatherSum :: [(U.FieldName, TR.SumConstr)] -> [TR.ModuleName]
+    gatherSum = catMaybes . snd <=< fmap (Data.Bifunctor.second (TR.unSumConstr . fmap go))
       where
         go :: TR.Field -> Maybe TR.ModuleName
         go (TR.Field _ tr') = U.referenceToModuleName prefix tr'
@@ -110,7 +109,7 @@ buildTypeDecl (TR.AnyOfType set) = do
     let fields =
             field .
             (var "Prelude.Maybe" @@) . var . fromString . U.referenceToQualTypeName prefix <$>
-            Set.toList set
+            set
     return $
         data'
             (fromString typename)
@@ -120,7 +119,7 @@ buildTypeDecl (TR.AnyOfType set) = do
 buildTypeDecl (TR.AllOfType set) = do
     typename <- askTypename
     prefix <- askModulePrefix
-    let fields = field . var . fromString . U.referenceToQualTypeName prefix <$> Set.toList set
+    let fields = field . var . fromString . U.referenceToQualTypeName prefix <$> set
     return $
         data'
             (fromString typename)
@@ -156,13 +155,13 @@ buildTypeDecl tr
         prefix <- askModulePrefix
         return $ data' (fromString typename) [] (buildSumCon's prefix map') U.minDerivingClause
   where
-    buildSumCon's :: U.ModulePrefix -> Map TR.FieldName TR.SumConstr -> [ConDecl']
+    buildSumCon's :: U.ModulePrefix -> [(TR.FieldName, TR.SumConstr)] -> [ConDecl']
     buildSumCon's prefix km =
         let constructorFromPair :: String -> TR.SumConstr -> ConDecl'
             constructorFromPair k v =
                 prefixCon (fromString . U.fieldNameToSumCon . U.changeReservedNames $ k) $
                 TR.unSumConstr $ transformField prefix <$> v
-         in uncurry constructorFromPair <$> Map.toList km
+         in uncurry constructorFromPair <$> km
 buildTypeDecl (TR.ArrayType tr') = do
     typename <- askTypename
     prefix <- askModulePrefix

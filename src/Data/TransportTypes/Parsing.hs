@@ -182,7 +182,7 @@ parseEnum obj = do
     parseStringEnum :: Text -> [String] -> Maybe U.Title -> ModuleParts
     parseStringEnum enc enum title = ModuleParts title mempty mempty typeRep enc
       where
-        typeRep = TR.SumType . Map.fromList $ (, TR.SumConstr []) <$> enum
+        typeRep = TR.SumType $ (, TR.SumConstr []) <$> enum
 
 parseConst :: Object -> StatefulParser ModuleParts
 parseConst obj = do
@@ -321,13 +321,14 @@ postprocessParserResult (ParserResult mp incs) =
     go :: ModuleParts -> ModuleParts
     go mp'
         | TR.ProdType km b <- tr = mpu' & declaration .~ TR.ProdType (mapField <$> km) b
-        | TR.SumType km <- tr = mpu' & declaration .~ TR.SumType (fmap mapField <$> km)
-        | TR.OneOfType km <- tr = mpu' & declaration .~ TR.OneOfType (fmap mapField <$> km)
+        | TR.SumType km <- tr = mpu' & declaration .~ TR.SumType (fmap (fmap mapField) <$> km)
+        | TR.OneOfType km <- tr =
+            mpu' & declaration .~ TR.OneOfType (fmap (fmap mapField) <$> km)
         | TR.ArrayType tr' <- tr = mpu' & declaration .~ TR.ArrayType (mapTypeRef tr')
         | TR.NewType tr' <- tr = mpu' & declaration .~ TR.NewType (mapTypeRef tr')
         | TR.Ref nltr <- tr = mpu' & declaration .~ TR.Ref (mapNonLocalRef nltr)
-        | TR.AllOfType set <- tr = mpu' & declaration .~ TR.AllOfType (Set.map mapTypeRef set)
-        | TR.AnyOfType set <- tr = mpu' & declaration .~ TR.AnyOfType (Set.map mapTypeRef set)
+        | TR.AllOfType set <- tr = mpu' & declaration .~ TR.AllOfType (fmap mapTypeRef set)
+        | TR.AnyOfType set <- tr = mpu' & declaration .~ TR.AnyOfType (fmap mapTypeRef set)
         | otherwise = mpu'
       where
         mapField = \(TR.Field req tr') -> TR.Field req $ mapTypeRef tr'
@@ -364,16 +365,16 @@ transformStrings transform (ParserResult mp deps) =
     transformTypeRep (TR.ProdType km b) =
         TR.ProdType (Map.mapKeys transform . Map.map transformField $ km) b
     transformTypeRep (TR.SumType km) =
-        TR.SumType $ Map.mapKeys transform . Map.map (fmap transformField) $ km
+        TR.SumType $ Data.Bifunctor.bimap transform (fmap transformField) <$> km
     transformTypeRep (TR.OneOfType km) =
-        TR.OneOfType $ Map.mapKeys transform . Map.map (fmap transformField) $ km
+        TR.OneOfType $ Data.Bifunctor.bimap transform (fmap transformField) <$> km
     transformTypeRep (TR.ArrayType tr') = TR.ArrayType $ transfromTypeRef tr'
     transformTypeRep (TR.NewType tr') = TR.NewType $ transfromTypeRef tr'
     transformTypeRep (TR.Ref (TR.RefExternalType nm tn)) =
         TR.Ref $ TR.RefExternalType (transform nm) (transform tn)
     transformTypeRep (TR.Ref (TR.RefPrimitiveType nm)) = TR.Ref . TR.RefPrimitiveType $ nm
-    transformTypeRep (TR.AnyOfType set) = TR.AnyOfType $ Set.map transfromTypeRef set
-    transformTypeRep (TR.AllOfType set) = TR.AllOfType $ Set.map transfromTypeRef set
+    transformTypeRep (TR.AnyOfType set) = TR.AnyOfType $ fmap transfromTypeRef set
+    transformTypeRep (TR.AllOfType set) = TR.AllOfType $ fmap transfromTypeRef set
     transformTypeRep (TR.ConstType v) = TR.ConstType v
     transfromTypeRef :: TR.TypeRef -> TR.TypeRef
     transfromTypeRef (TR.ReferenceToLocalType s tn) =

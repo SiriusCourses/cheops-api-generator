@@ -7,7 +7,6 @@ import GHC.SourceGen (App (op, (@@)), BVar (bvar), HsDecl', Var (var), case', co
                       stmt, string, valBind, where', wildP, (<--))
 
 import qualified Data.Map.Strict as Map
-import qualified Data.Set        as Set
 import           Data.String     (IsString (fromString))
 import qualified Data.Text       as T
 
@@ -76,7 +75,7 @@ buildFromJSONInstance typename (TR.ProdType map' b)
                      var "obj"
                 else Nothing
 buildFromJSONInstance typename (TR.SumType map')
-    | Map.null map' =
+    | null map' =
         instance'
             (var "Data.Yaml.FromJSON" @@ var (fromString typename))
             [funBind "parseJSON" $ match [] $ var "Prelude.fail" @@ string "no constructors"]
@@ -100,7 +99,7 @@ buildFromJSONInstance typename (TR.SumType map')
         ((\x ->
               match [string x] $
               var "Prelude.return" @@ var (fromString . U.fieldNameToSumCon $ x)) <$>
-         Map.keys map')
+         fmap fst map')
 buildFromJSONInstance typename (TR.OneOfType map') =
     instance'
         (var "Data.Yaml.FromJSON" @@ var (fromString typename))
@@ -116,13 +115,13 @@ buildFromJSONInstance typename (TR.OneOfType map') =
         (\optName ->
              var "Prelude.fmap" @@ var (fromString optName) @@
              (var "Data.Yaml.parseJSON" @@ var "obj")) <$>
-        Map.keys map'
+        fmap fst map'
 buildFromJSONInstance typename (TR.AnyOfType set') =
     instance'
         (var "Data.Yaml.FromJSON" @@ var (fromString typename))
         [funBind "parseJSON" $ match [bvar "obj"] $ do' . reverse $ ret : binds]
   where
-    bindNames = ("opt" ++) . show <$> [1 .. Set.size set']
+    bindNames = ("opt" ++) . show <$> [1 .. length set']
     binds =
         (\x ->
              (bvar . fromString . U.fieldNameToPatName $ x) <--
@@ -145,7 +144,7 @@ buildFromJSONInstance typename (TR.AllOfType set') =
         (var "Data.Yaml.FromJSON" @@ var (fromString typename))
         [funBind "parseJSON" $ match [bvar "obj"] $ do' . reverse $ ret : binds]
   where
-    bindNames = ("opt" ++) . show <$> [1 .. Set.size set']
+    bindNames = ("opt" ++) . show <$> [1 .. length set']
     binds =
         (\x ->
              (bvar . fromString . U.fieldNameToPatName $ x) <-- var "Data.Yaml.parseJSON" @@
@@ -186,13 +185,14 @@ buildFromJSONInstance typename (TR.ConstType v) =
           matchGRHSs [bvar "v"] $ rhs decodeValidation `where'` [bindGroundTruth]
         ]
   where
-    decodeValidation =
-        do' [bvar "cnd" <-- cond, stmt $ if' (var "cnd") good bad]
+    decodeValidation = do' [bvar "cnd" <-- cond, stmt $ if' (var "cnd") good bad]
       where
         cond =
             case'
                 (var "groundTruth")
-                [match [conP "Prelude.Left" [wildP]] constFail, match [conP "Prelude.Right" [bvar "x"]] cmp]
+                [ match [conP "Prelude.Left" [wildP]] constFail
+                , match [conP "Prelude.Right" [bvar "x"]] cmp
+                ]
         cmp = var "Prelude.return" @@ op (var "x") "Prelude.==" (var "v")
         good = var "Prelude.return" @@ var (fromString cntrName)
         constFail =

@@ -62,8 +62,8 @@ appendAofPart (i, new) ModuleParts {..} =
                         _json
   where
     appendToTypeRep :: TR.TypeRep -> TR.TypeRef -> TR.TypeRep
-    appendToTypeRep (TR.AllOfType set) tr = TR.AllOfType $ Set.insert tr set
-    appendToTypeRep (TR.AnyOfType set) tr = TR.AnyOfType $ Set.insert tr set
+    appendToTypeRep (TR.AllOfType set) tr = TR.AllOfType $ tr : set
+    appendToTypeRep (TR.AnyOfType set) tr = TR.AnyOfType $ tr : set
     appendToTypeRep x _                   = x
 
 appendRecord :: TR.FieldName -> (ModuleParts, Bool) -> ModuleParts -> ModuleParts
@@ -99,6 +99,6 @@ appendRecord fieldName (record, req) ModuleParts {..} =
   where
     appendToTypeRep :: TR.TypeRep -> TR.FieldName -> TR.Field -> TR.TypeRep
     appendToTypeRep (TR.ProdType km b) k tr = TR.ProdType (Map.insert k tr km) b
-    appendToTypeRep (TR.SumType km) k tr  = TR.SumType $ Map.insert k (TR.SumConstr [tr]) km
-    appendToTypeRep (TR.OneOfType km) k tr    = TR.OneOfType $ Map.insert k (TR.SumConstr [tr]) km
-    appendToTypeRep x _ _                 = x
+    appendToTypeRep (TR.SumType km) k tr    = TR.SumType $ (k, TR.SumConstr [tr]) : km
+    appendToTypeRep (TR.OneOfType km) k tr  = TR.OneOfType $ (k, TR.SumConstr [tr]) : km
+    appendToTypeRep x _ _                   = x

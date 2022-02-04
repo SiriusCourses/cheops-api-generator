@@ -6,7 +6,6 @@ import           Data.Aeson                              (encode)
 import           Data.Bifunctor                          (second)
 import           Data.ByteString.Lazy                    (toStrict)
 import qualified Data.Map.Strict                         as Map
-import qualified Data.Set                                as Set
 import           Data.String                             (IsString (fromString))
 import qualified Data.Text                               as T
 import           Data.Text.Encoding                      (decodeUtf8)
@@ -76,8 +75,7 @@ buildToSchemaInstance title _ typename (TR.SumType map') =
          (var "Prelude.mempty" `amp` op (var "Data.Swagger.enum_") "Control.Lens.?~" enumList))
       where
         enumList =
-            list $
-            (\x -> var "Data.Aeson.String" @@ string x) . uncurry mkClause <$> Map.toList map'
+            list $ (\x -> var "Data.Aeson.String" @@ string x) . uncurry mkClause <$> map'
         mkClause optName _ = optName
 {-
 instance ToSchema typename where
@@ -95,9 +93,8 @@ buildToSchemaInstance title prefix typename tr'
                  else case head flds -- as there is no way to have two types in one item of OneOf list in json schema
                             of
                           TR.Field _ tr -> U.referenceToQualTypeName prefix tr) <$>
-        Map.toList map'
-    | (TR.AnyOfType set') <- tr' =
-        mkInstance $ U.referenceToQualTypeName prefix <$> Set.toList set'
+        map'
+    | (TR.AnyOfType set') <- tr' = mkInstance $ U.referenceToQualTypeName prefix <$> set'
   where
     mkInstance :: [U.QualTypeName] -> HsDecl'
     mkInstance ts =
@@ -155,8 +152,8 @@ buildToSchemaInstance title prefix typename (TR.AllOfType set) =
              (var "Data.Proxy.Proxy" GHC.SG.@::@
               (var "Data.Proxy.Proxy" @@
                var (fromString . replaceUnitProxy $ U.referenceToQualTypeName prefix tr)))) <$>
-        zip [1 ..] (Set.toList set)
-    altList = list $ var . fromString . toBind <$> [1 .. Set.size set]
+        zip [1 ..] set
+    altList = list $ var . fromString . toBind <$> [1 .. length set]
     bdy = do' . reverse $ ret : binds
       where
         titleLit = maybe (var "Prelude.Nothing") (\x -> var "Prelude.Just" @@ string x) title
