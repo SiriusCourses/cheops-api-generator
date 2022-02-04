@@ -64,6 +64,7 @@ dependencies:
 - utf8-string
 - bytestring
 - QuickCheck
+- process
 
 ghc-options:
 - -Wincomplete-patterns
