@@ -9,9 +9,8 @@ import qualified Data.Text   as T
 import GHC.SourceGen (App ((@@)), BVar (bvar), HasList (list), HsDecl', HsModule', Var (var),
                       case', conP, do', funBind, import', instance', int, lambda, match,
                       matchGRHSs, module', op, qualified', recordUpd, rhs, stmt, string, tyApp,
-                      typeSig, valBind, where', (-->), (<--))
+                      typeSig, valBind, where', (-->))
 
-import           Data.List                               (intersperse)
 import           Data.TransportTypes.CodeGen.Hylo        (Payload (..))
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import           Data.TransportTypes.CodeGen.TypeGen     (gatherLocalImports)
@@ -48,12 +47,9 @@ buildSpec paths =
     mainDef = funBind main $ match [] mainBdy
       where
         mainBdy =
-            do' $
-            stmt (var "FFI.start_python") :
-            (bvar "pb" <-- progressBar) : testCalls ++ [stmt $ var "FFI.end_python"]
+            do' $ [stmt (var "FFI.start_python")] ++ testCalls ++ [stmt $ var "FFI.end_python"]
           where
             testCalls =
-                intersperse (stmt $ var "System.ProgressBar.incProgress" @@ var "pb" @@ int 1) $
                 (\t ->
                      stmt $
                      do'
@@ -66,12 +62,6 @@ buildSpec paths =
                            var (fromString $ t ++ "." ++ antherTestName)
                          ]) <$>
                 imports
-            progressBar =
-                var "System.ProgressBar.newProgressBar" @@ var "System.ProgressBar.defStyle" @@
-                int 10 @@
-                (var "System.ProgressBar.Progress" @@ int 0 @@
-                 int (fromIntegral $ length paths) @@
-                 var "()")
 
 buildTest :: Payload -> U.ModulePrefix -> HsModule'
 buildTest Payload {..} prefix =
