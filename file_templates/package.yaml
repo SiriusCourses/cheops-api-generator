@@ -51,7 +51,6 @@ dependencies:
 - ghc-prim
 - utf8-string
 - bytestring
-- terminal-progress-bar
 - directory
 - generic-random >=1.5
 - hashable
