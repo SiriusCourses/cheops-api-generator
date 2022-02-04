@@ -52,7 +52,7 @@ dependencies:
 - utf8-string
 - bytestring
 - directory
-- generic-random >=1.5
+- generic-random
 - hashable
 - binary
 - swagger2
