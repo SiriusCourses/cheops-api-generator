@@ -1,3 +1,9 @@
+{-|
+Module      : Data.TransportTypes.CodeGen.Hylo.Internal
+
+Makes hylomorhism from 'Algebra' and 'Coalgebra'
+-}
+
 module Data.TransportTypes.CodeGen.Hylo.Internal where
 import Control.Arrow ((>>>))
 

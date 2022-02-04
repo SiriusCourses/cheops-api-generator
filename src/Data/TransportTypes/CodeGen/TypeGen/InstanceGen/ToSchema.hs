@@ -1,3 +1,9 @@
+{-|
+Module      : Data.TransportTypes.CodeGen.TypeGen.InstanceGen.ToSchema
+
+Contains all utility for generating 'Data.Swagger.ToSchema' instance
+-}
+
 module Data.TransportTypes.CodeGen.TypeGen.InstanceGen.ToSchema
     ( buildToSchemaInstance
     ) where

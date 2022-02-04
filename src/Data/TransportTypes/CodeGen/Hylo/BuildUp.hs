@@ -1,4 +1,22 @@
-module Data.TransportTypes.CodeGen.Hylo.BuildUp where
+{-|
+Module      : Data.TransportTypes.CodeGen.Hylo.BuildUp
+
+Recurcive functions for traversal of a tree of yaml files.
+Defines 'Algbra' for hylomorhism
+-}
+
+module Data.TransportTypes.CodeGen.Hylo.BuildUp(
+    -- * State of tree traverse
+    Ctx
+    , GeneratorState(..)
+    -- * Reversed Maybe
+    , Dep(..)
+    -- * Traverse functions
+    , build
+    , buildUp
+    , buildExternalDep
+    , buildOrphanDeps
+) where
 
 import Control.Monad.Except       (Except, MonadError (..), runExcept)
 import Control.Monad.Reader       (ReaderT (..), asks, withReaderT)
@@ -31,8 +49,15 @@ newtype GeneratorState =
         }
     deriving newtype (Semigroup, Monoid, Show)
 
+-- | Reader is for module prefix, State is for includes
+--
+-- 'U.MoudlePrefix' is a representation of the path to the current tree node
+--
+-- 'GeneratorState' is a representation of other trees that might be encountered more then once.
 type Ctx a = ReaderT U.ModulePrefix (StateT GeneratorState (Except String)) a
 
+-- | Traverses tree of 'Payload's from the top, builds from the leaves. 
+-- First argument is a function that builds this node to haskell source
 buildUp ::
        (Payload -> U.ModulePrefix -> HsModule')
     -> Algebra (NodeF Payload) (Ctx (Map FilePath HsModule'))
@@ -49,6 +74,9 @@ buildUp k node = do
     path <- asks U.prefixToPath
     return $ Map.singleton path newModule <> extDeps <> localDeps
 
+-- | Function that goes to 'GeneratorState' and starts new traverse of some tree stored there
+-- First argument is a function that builds this node to haskell source
+-- Second arguent is a key for a destination in 'GeneratorState'
 buildExternalDep ::
        (Payload -> U.ModulePrefix -> HsModule') -> FilePath -> Ctx (Map FilePath HsModule')
 buildExternalDep k path = do
@@ -71,6 +99,8 @@ buildExternalDep k path = do
             modify $ \incs -> GeneratorState $ Map.insert (fromString path) Built $ coerce incs
             return builtModules
 
+-- | Function that goes to 'GeneratorState' and starts new traverse for each tree which is not built
+-- First argument is a function that builds this node to haskell source
 buildOrphanDeps :: (Payload -> U.ModulePrefix -> HsModule') -> Ctx (Map FilePath HsModule')
 buildOrphanDeps k = do
     nms <- fmap fst . filter f . Map.toList . includes <$> get
@@ -79,12 +109,15 @@ buildOrphanDeps k = do
     f (_, ToBuild _) = True
     f (_, Built)     = False
 
+-- | Function that takes tree in a form of 'U.ModuleParts' and builds it recursivly.
+-- Unfortunatly it forgets external subtrees if they are not transitively depended on by tree root
 modulePartsToModules ::
        (Payload -> U.ModulePrefix -> HsModule')
     -> MP.ModuleParts
     -> Ctx (Map FilePath HsModule')
 modulePartsToModules k = hylo breakDown (buildUp k)
 
+-- | Function that does it all. Transforms 'ParserResult' to collection of haskell modules with their paths
 build ::
        (Payload -> U.ModulePrefix -> HsModule')
     -> ParserResult

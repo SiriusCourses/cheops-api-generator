@@ -4,7 +4,19 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
-module Data.TransportTypes.Parsing where
+{-|
+Module      : Data.TransportTypes.Parsing
+
+Module that does parsing via 'fromJSON' instance of 'ParserResult'
+-}
+
+module Data.TransportTypes.Parsing(
+    ParserResult(..),
+    -- * Postprocess utility
+    postprocessParserResult,
+    transformStrings,
+    dashesToUnderscore
+) where
 
 import Control.Lens (makeLenses, (%~), (&), (.~), (<&>), (^.))
 
@@ -31,14 +43,16 @@ import           Data.Foldable                           (asum)
 import qualified Data.Text                               as T
 import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import qualified Data.TransportTypes.JSTypes             as JS
-import           Data.TransportTypes.ModuleParts         (ModuleParts (..))
+import           Data.TransportTypes.ModuleParts         (ModuleParts (..), declaration, externalDeps, jsTitle)
 import qualified Data.TransportTypes.ModuleParts         as MP
 import qualified Data.TransportTypes.Parsing.LCP         as LCP
 import qualified Data.TransportTypes.TypeRep             as TR
 
 newtype ParserState =
     ParserState
-        { _cachedIncludes :: Map FilePath ModuleParts
+        {
+      -- | filepaths and their parsed content that parser had already met
+      _cachedIncludes :: Map FilePath ModuleParts
         }
     deriving (Show, Eq, Generic)
     deriving newtype (Semigroup, Monoid)
@@ -46,6 +60,7 @@ newtype ParserState =
 
 type StatefulParser a = StateT ParserState Parser a
 
+-- | Result of transforming 'Data.Yaml.Value' to tree of 'ModuleParts'
 data ParserResult =
     ParserResult
         { mainType :: ModuleParts
@@ -54,19 +69,13 @@ data ParserResult =
     deriving (Show, Eq, Generic)
     deriving anyclass (ToJSON)
 
-makeLenses ''ModuleParts
-
-makeLenses ''ParserResult
-
 makeLenses ''ParserState
 
+-- | Semantic string alias
 type TypeInfo = String
 
+-- | Semantic string alias
 type Origin = FilePath
-
-type Properties = Object
-
-type EncodedJSON = Text
 
 instance FromJSON ParserResult where
     parseJSON (Object obj) = makeParserResult <$> runStateT (parseDispatch obj) mempty
@@ -303,6 +312,7 @@ parseRecordLike obj = do
                  " that are required but not present: " ++
                  (mconcat . intersperse ", " $ reqs \\ Map.keys properties)
 
+-- | Strips all paths and module names of least common prefix
 postprocessParserResult :: ParserResult -> ParserResult
 postprocessParserResult (ParserResult mp incs) =
     ParserResult (go mp) $ Data.Bifunctor.bimap (fromJust . changePath) go <$> incs
@@ -334,7 +344,7 @@ postprocessParserResult (ParserResult mp incs) =
         mapField = \(TR.Field req tr') -> TR.Field req $ mapTypeRef tr'
         tr = _declaration mp'
         mpu = mp' & externalDeps %~ Set.map (fromJust . changePath)
-        mpu' = mpu & localDeps %~ fmap go
+        mpu' = mpu & MP.localDeps %~ fmap go
     mapNonLocalRef :: TR.NonLocalRef -> TR.NonLocalRef
     mapNonLocalRef tr
         | TR.RefExternalType s tn <- tr = TR.RefExternalType (fromJust $ changePath s) tn
@@ -343,12 +353,14 @@ postprocessParserResult (ParserResult mp incs) =
     mapTypeRef (TR.ExtRef nlr) = TR.ExtRef $ mapNonLocalRef nlr
     mapTypeRef r               = r
 
+-- | Replaces dashes with underscores
 dashesToUnderscore :: String -> String
 dashesToUnderscore = map l
   where
     l '-' = '_'
     l s   = s
 
+-- | Applies string transformation to all meaningful(does not touch content of primitve reference, for example) strings
 transformStrings :: (String -> String) -> ParserResult -> ParserResult
 transformStrings transform (ParserResult mp deps) =
     ParserResult (go mp) $ Data.Bifunctor.bimap transform go <$> deps

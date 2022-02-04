@@ -1,6 +1,14 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Data.TransportTypes.CodeGen.TypeGen where
+{-|
+Module      : Data.TransportTypes.CodeGen.TypeGen
+
+Contains all utility for generating types.
+-}
+module Data.TransportTypes.CodeGen.TypeGen
+    ( gatherLocalImports
+    , buildModule
+    ) where
 
 import Control.Monad ((<=<))
 
@@ -32,15 +40,13 @@ import           Data.Yaml                                       (Value (..))
 
 type TypeCtx a = Reader (U.ModulePrefix, U.QualTypeName) a
 
-askQualTypename :: Reader (U.ModulePrefix, U.QualTypeName) U.QualTypeName
-askQualTypename = asks snd
-
 askModulePrefix :: Reader (U.ModulePrefix, U.QualTypeName) U.ModulePrefix
 askModulePrefix = asks fst
 
 askTypename :: Reader (U.ModulePrefix, U.QualTypeName) TR.TypeName
 askTypename = asks (U.typenameFromQualTypeName . snd)
 
+-- | Gathers all subschemas that are defined in-place.
 gatherLocalImports :: U.ModulePrefix -> TR.TypeRep -> [TR.ModuleName]
 gatherLocalImports prefix tr
     | TR.AllOfType set <- tr = gather set
@@ -68,6 +74,7 @@ gatherLocalImports prefix (TR.NewType tr') = toList $ U.referenceToModuleName pr
 gatherLocalImports _prefix (TR.Ref nlr) = toList $ U.nonLocalReferenceToModuleName nlr
 gatherLocalImports _ _ = mempty
 
+-- | Builds type declaration, 'Data.Yaml.FromJSON', 'Data.Yaml.ToJSON', 'Data.Swagger.ToSchema' and 'IsEmpty' instances
 buildModule :: Payload -> U.ModulePrefix -> HsModule'
 buildModule Payload {..} prefix =
     let extImports =

@@ -1,6 +1,6 @@
 {-|
 Module      : Data.TransportTypes.CodeGen.Utils
-Description : Helper functions for code generation. 
+Helper functions for code generation. 
 -}
 module Data.TransportTypes.CodeGen.Utils where
 

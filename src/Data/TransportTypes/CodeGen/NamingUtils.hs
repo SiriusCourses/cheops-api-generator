@@ -1,8 +1,50 @@
 {-|
 Module      : Data.TransportTypes.CodeGen.NamingUtils
-Description : Helper functions for getting type names and module names from title and prefix
+Helper functions for getting type names and module names from title and prefix
 -}
-module Data.TransportTypes.CodeGen.NamingUtils where
+module Data.TransportTypes.CodeGen.NamingUtils
+    ( 
+    -- * Semantic type aliases for String
+    ModulePrefix
+    , Title
+    , ModuleName
+    , QualTypeName
+    , FieldName
+    -- * String handling
+    -- ** Extracting naming info from title and prefix
+    , updatePrefix
+    , pathToPrefix
+    , prefixToModuleName
+    , prefixToQualTypeName
+    , typenameFromQualTypeName
+    , prefixToTypeName
+    , prefixToPath
+    -- ** Reference handling
+    , referenceToQualTypeName
+    , referenceToTypeName
+    , referenceToModuleName
+    , nonLocalReferenceToQualTypeName
+    , nonLocalReferenceToModuleName
+    -- ** Other things
+    , typeNameFromAbsolutePath
+    , fieldNameToSumCon
+    , chooseName
+    , getterName
+    , testNameFromModuleName
+    , testFilePathFromModuleFilePath
+    -- * Useful constants
+    , unnamed
+    , fieldNameToPatName
+    , globalPrefix
+    , specPath
+    
+    -- * Imports
+    , defaultImportNames
+    , perTestImports
+    , specImports
+    -- * Reserved name handling
+    , changeReservedNamesBack
+    , changeReservedNames) where
 
 import Data.Function ((&))
 import Data.List     (intersperse)
@@ -150,7 +192,7 @@ testNameFromModuleName = (++ testSuffix)
 testFilePathFromModuleFilePath :: FilePath -> FilePath
 testFilePathFromModuleFilePath fn = replaceFileName fn $ takeBaseName fn ++ "Test" <.> "hs"
 
--- | Constant for default imports
+-- | Constant for default imports in each type module
 defaultImportNames :: [String]
 defaultImportNames =
     [ "Prelude"

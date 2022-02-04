@@ -3,7 +3,25 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Data.TransportTypes.ModuleParts where
+{-|
+Module      : Data.TransportTypes.ModuleParts
+
+ModuleParts is a node that represent ONE type from yaml schema.
+It also represent its connection with its subschemas, type structure and other usefull information.
+-}
+module Data.TransportTypes.ModuleParts (
+        -- * ModuleParts
+     ModuleParts(..)
+        -- ** Lenses for 'ModuleParts'
+    , jsTitle
+    , json
+    , externalDeps
+    , localDeps
+    , declaration
+        -- ** Accumulating functions
+    , appendAofPart
+    , appendRecord
+    ) where
 
 import           Control.Lens (makeLenses, (^.))
 import           Data.Set     (Set)
@@ -20,11 +38,16 @@ import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import qualified Data.TransportTypes.TypeRep             as TR
 
 data ModuleParts =
-    ModuleParts
-        { _jsTitle      :: Maybe String
+    ModuleParts {
+       -- | Optional title. Usually obtained as @obj .:? "title"@
+         _jsTitle      :: Maybe String
+      -- | Set of all files that have been included via @!include file.yaml@
         , _externalDeps :: Set FilePath
+      -- | Map from fieldname to subschema that was described in-place.
         , _localDeps    :: Map TR.ModuleName ModuleParts
+      -- | Type structure of current type.
         , _declaration  :: TR.TypeRep
+      -- | Original schema
         , _json         :: Text
         }
     deriving (Show, Eq, Generic)
@@ -32,7 +55,11 @@ data ModuleParts =
 
 makeLenses ''ModuleParts
 
-appendAofPart :: (Int, ModuleParts) -> ModuleParts -> ModuleParts
+-- | Function that describes a way to combine types into AllOf or to Anyof type
+appendAofPart ::
+    (Int, ModuleParts) -- ^ Option number and new option type to add
+    -> ModuleParts -- ^ Type to accumulate to
+    -> ModuleParts -- ^ Resulting type wich is a combination of two arguments
 appendAofPart (i, new) ModuleParts {..} =
     let fieldName = U.unnamed ++ show i
      in case new ^. declaration of
@@ -66,7 +93,12 @@ appendAofPart (i, new) ModuleParts {..} =
     appendToTypeRep (TR.AnyOfType set) tr = TR.AnyOfType $ tr : set
     appendToTypeRep x _                   = x
 
-appendRecord :: TR.FieldName -> (ModuleParts, Bool) -> ModuleParts -> ModuleParts
+-- | Function that describes a way to combine types into a productType
+appendRecord ::
+       TR.FieldName -- ^ FieldName to add
+    -> (ModuleParts, Bool) -- ^ Field that is added under FieldName and it's required flag
+    -> ModuleParts -- ^ Type to add to
+    -> ModuleParts -- ^ Resulting type which is a new type with a new field
 appendRecord fieldName (record, req) ModuleParts {..} =
     case record ^. declaration of
         TR.Ref (TR.RefPrimitiveType s) ->

@@ -1,3 +1,9 @@
+{-|
+Module      :  Data.TransportTypes.Parsing.IncludeInjection
+
+Module with functions for editing event stream from yaml file.
+-}
+
 module Data.TransportTypes.Parsing.IncludeInjection where
 
 import Control.Exception (handleJust, throwIO)
@@ -21,9 +27,11 @@ import System.Directory (canonicalizePath, doesFileExist)
 import System.FilePath  (isAbsolute, joinPath, splitPath, takeDirectory, (</>))
 import System.IO.Error  (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
 
+-- | Not to ever confuse it with something else
 newtype RepositoryRoot =
     RepositoryRoot FilePath
 
+-- | Parses yaml and unwraps includes. Also is trying to reroot missing paths. If you see an error that file with duplicated path prefix is not found it means that this function did not find it and faild to reroot it.
 eventsFromFile :: MonadResource m => RepositoryRoot -> FilePath -> ConduitM i Event m ()
 eventsFromFile (RepositoryRoot crr) = go [] []
   where
@@ -94,18 +102,7 @@ eventsFromFile (RepositoryRoot crr) = go [] []
                 -- recourse on yourself
                 conduitInjector els
 
-additionalPropertiesDropper :: (Monad m) => ConduitM Event Event m ()
-additionalPropertiesDropper = do
-    one <- await
-    case one of
-        Nothing -> return ()
-        Just (EventScalar "additionalProperties" _ _ _) -> do
-            _ <- await
-            additionalPropertiesDropper
-        Just one' -> do
-            yield one'
-            additionalPropertiesDropper
-
+-- | Drops "minItems" field and "maxItems" field. Used to refine test results.
 itemCountDropper :: (Monad m) => ConduitM Event Event m ()
 itemCountDropper = do
     one <- await

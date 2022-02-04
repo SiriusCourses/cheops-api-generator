@@ -1,3 +1,9 @@
+{-|
+Module      : Data.TransportTypes.CodeGen.TypeGen.InstanceGen.FromJson
+
+Contains all utility for generating 'Data.Yaml.FromJSON' instance
+-}
+
 module Data.TransportTypes.CodeGen.TypeGen.InstanceGen.FromJson
     ( buildFromJSONInstance
     ) where

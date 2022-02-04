@@ -1,5 +1,10 @@
 {-# LANGUAGE RecordWildCards #-}
 
+{-|
+Module      : Data.TransportTypes.CodeGen.TestGen
+
+Contains all utility for generating tests for already generated types.
+-}
 module Data.TransportTypes.CodeGen.TestGen where
 
 import qualified Data.Set    as Set
@@ -16,12 +21,15 @@ import qualified Data.TransportTypes.CodeGen.NamingUtils as U
 import           Data.TransportTypes.CodeGen.TypeGen     (gatherLocalImports)
 import qualified Data.TransportTypes.TypeRep             as TR
 
+-- | Validation test function name
 testName :: String
 testName = "prop_validationTest"
 
+-- | Invariant test function name
 antherTestName :: String
 antherTestName = "prop_decencTest"
 
+-- | Generates @Spec.hs@
 buildSpec :: [FilePath] -> HsModule'
 buildSpec paths =
     module'
@@ -63,6 +71,7 @@ buildSpec paths =
                          ]) <$>
                 imports
 
+-- | Generates @Qual.Type.NameTest.hs@
 buildTest :: Payload -> U.ModulePrefix -> HsModule'
 buildTest Payload {..} prefix =
     let tgtModuleName = U.prefixToModuleName prefix
@@ -98,6 +107,7 @@ buildTest Payload {..} prefix =
     (antoherTestSig, antoherTest) = buildEncodingInvariantTest qualTypename typeRep
     (rawschemaLitSig, rawschemaLit) = buildschemaLiteral json
 
+-- | Generates test which checks if random @Qual.Type.Name@ sample validates agains schemaLiteral when converted 'Data.Yaml.toJSON'
 buildtoValidationTest :: TR.TypeName -> TR.TypeRep -> (HsDecl', HsDecl')
 buildtoValidationTest qualTypename typeRep = (testSig, test)
   where
@@ -129,6 +139,7 @@ buildtoValidationTest qualTypename typeRep = (testSig, test)
                             ]
                 _ -> var "Prelude.const" @@ var "Prelude.True"
 
+-- | Generates test which checks if random @Qual.Type.Name@ sample stays unchanged after 'Data.Yaml.toJSON' and 'Data.Yaml.fromJSON' calls
 buildEncodingInvariantTest :: TR.TypeName -> TR.TypeRep -> (HsDecl', HsDecl')
 buildEncodingInvariantTest qualTypename _ = (testSig, test)
   where
@@ -139,6 +150,7 @@ buildEncodingInvariantTest qualTypename _ = (testSig, test)
       where
         testBdy = var "Prototypes.encodingDecodingInvariantTest_prototype" @@ string qualTypename
 
+-- | Generates schema literal for validation test
 buildschemaLiteral :: T.Text -> (HsDecl', HsDecl')
 buildschemaLiteral json = (rawschemaLitSig, rawschemaLit)
   where
