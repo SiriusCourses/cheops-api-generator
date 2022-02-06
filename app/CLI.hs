@@ -18,7 +18,7 @@ module CLI
 
 import Control.Monad    (unless, when)
 import Options.Generic
-import System.Directory (canonicalizePath, doesDirectoryExist)
+import System.Directory (canonicalizePath, doesDirectoryExist, doesFileExist)
 import System.Posix     (getFileStatus, isDirectory, isRegularFile)
 
 -- | Command line options defined according to specification in 'Options' package.
@@ -87,9 +87,9 @@ checkArgs Input {..} = do
         if isDirectory outputStatus
             then canonicalizePath . unDefValue . unHelpful $ output
             else fail "output should be a directory"
-    overWrittenFileExists <- getFileStatus . unDefValue . unHelpful $ overwritten_files
+    overWrittenFileExists <- doesFileExist . unDefValue . unHelpful $ overwritten_files
     let chOverwritten =
-            if isRegularFile overWrittenFileExists
+            if overWrittenFileExists
                 then Just . unDefValue . unHelpful $ overwritten_files
                 else Nothing
     return $
