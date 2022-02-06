@@ -1,4 +1,0 @@
-type: array
-title: string_array
-items: 
-  type: string
