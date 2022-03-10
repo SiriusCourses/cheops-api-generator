@@ -220,10 +220,15 @@ parseConst obj = do
 
 parseOneOf :: Object -> StatefulParser ModuleParts
 parseOneOf obj = do
-    (options :: Map String (ModuleParts, Bool)) <-
-        Map.map (, True) . Map.fromList . zip (fmap (\n -> "Option" ++ show n) [1 :: Int ..]) <$>
-        (traverse parseDispatch =<< lift (obj .: "oneOf"))
     title <- lift $ obj .:? "title"
+    (options :: Map String (ModuleParts, Bool)) <-
+        Map.map (, True)
+           . Map.fromList
+           . zipWith (\n m -> (maybe ("Option" ++ show n)
+                                     (\(outer,inner) -> outer ++ inner)
+                                     ((,) <$> title <*> (_jsTitle  m))
+                               , m)) [(1::Int)..]
+          <$> (traverse parseDispatch =<< lift (obj .: "oneOf"))
     let ini = ModuleParts title mempty mempty (TR.OneOfType mempty) (decodeUtf8 . encode $ obj)
     return $ Map.foldrWithKey MP.appendRecord ini options
 
