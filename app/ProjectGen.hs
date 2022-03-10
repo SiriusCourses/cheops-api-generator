@@ -12,18 +12,21 @@ import System.Directory     (canonicalizePath, copyFile, createDirectoryIfMissin
 import System.FilePath      (joinPath, takeDirectory, (</>))
 import System.Process       (CreateProcess (cwd), createProcess, proc, waitForProcess)
 
-neededFiles :: [FilePath]
-neededFiles =
+neededFiles :: Bool -> [FilePath]
+neededFiles noTests =
     [ joinPath ["external", "Data", "TransportTypes", "ArbitraryInstanceForValue.hs"]
     , joinPath ["external", "Data", "TransportTypes", "Utils.hs"]
-    , joinPath ["test", "ffi", "FFI.hs"]
-    , joinPath ["test", "test_prototypes", "Prototypes.hs"]
     , "package.yaml"
-    , "stack.yaml"
-    ]
+    ] ++
+    if noTests
+    then []
+    else [ joinPath ["test", "ffi", "FFI.hs"]
+         , joinPath ["test", "test_prototypes", "Prototypes.hs"]
+         ]
 
-cbitsFiles :: [FilePath]
-cbitsFiles =
+cbitsFiles :: Bool -> [FilePath]
+cbitsFiles True = []
+cbitsFiles _ =
     [ joinPath ["cbits", "c_validate", "unsafe_validate.h"]
     , joinPath ["cbits", "c_validate", "unsafe_validate.cpp"]
     , joinPath ["cbits", "c_validate", "CMakeLists.txt"]
@@ -32,19 +35,19 @@ cbitsFiles =
 srcDir :: FilePath
 srcDir = "file_templates"
 
-transferCBits :: ReaderT FilePath IO ()
-transferCBits = do
+transferCBits :: Bool -> ReaderT FilePath IO ()
+transferCBits chNoTests = do
     cTgtDir <- lift . canonicalizePath =<< ask
-    lift . for_ cbitsFiles $ \fl -> do
+    lift . for_ (cbitsFiles chNoTests) $ \fl -> do
         createDirectoryIfMissing True $ cTgtDir </> takeDirectory fl
         copyFile fl (cTgtDir </> fl)
     return ()
 
-transferMissingSources :: ReaderT FilePath IO ()
-transferMissingSources = do
+transferMissingSources :: Bool -> ReaderT FilePath IO ()
+transferMissingSources chNoTests = do
     cSrcDir <- lift . canonicalizePath $ srcDir
     cTgtDir <- lift . canonicalizePath =<< ask
-    lift . for_ neededFiles $ \fl -> do
+    lift . for_ (neededFiles chNoTests) $ \fl -> do
         createDirectoryIfMissing True $ cTgtDir </> takeDirectory fl
         copyFile (cSrcDir </> fl) (cTgtDir </> fl)
 

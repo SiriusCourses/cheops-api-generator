@@ -136,8 +136,8 @@ main = do
                         saveModules (Just pb) load
             putStrLn "Creating cabal project..."
             flip runReaderT chOutput $ do
-                ProjectGen.transferMissingSources
-                ProjectGen.transferCBits
+                ProjectGen.transferMissingSources chNoTests
+                ProjectGen.transferCBits chNoTests
                 ProjectGen.createCabalFile
                 ProjectGen.cleanUpStackFiles
             putStrLn "Cabal project is done!"
