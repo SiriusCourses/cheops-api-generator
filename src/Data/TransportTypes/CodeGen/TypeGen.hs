@@ -12,6 +12,7 @@ module Data.TransportTypes.CodeGen.TypeGen
 
 import Control.Monad ((<=<))
 
+import           Data.List (nubBy)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe      (catMaybes, mapMaybe)
@@ -78,15 +79,19 @@ gatherLocalImports _ _ = mempty
 buildModule :: Payload -> U.ModulePrefix -> HsModule'
 buildModule Payload {..} prefix =
     let extImports =
-            qualified' . import' . fromString . U.prefixToModuleName . U.pathToPrefix <$>
-            Set.toList externalDeps
+            (\s -> let name = U.prefixToModuleName . U.pathToPrefix $ s
+                   in (name, qualified' . import' $ fromString name))
+            <$> Set.toList externalDeps
         exports = Nothing
-        defaultImports = qualified' . import' . fromString <$> U.defaultImportNames
-        locals = qualified' . import' . fromString <$> gatherLocalImports prefix typeRep
+        defaultImports =
+          (\s -> (s, qualified' . import' $ fromString s)) <$> U.defaultImportNames
+        locals =
+          (\s -> (s, qualified' . import' $ fromString s)) <$> gatherLocalImports prefix typeRep
      in module'
             (Just . fromString $ U.prefixToModuleName prefix)
             exports
-            (extImports <> locals <> defaultImports <> [U.hidingPrelude])
+            (fmap snd $ nubBy (\x y -> fst x == fst y)
+               $ extImports <> locals <> defaultImports <> [("_prelude", U.hidingPrelude)])
             (tDecl : instances)
   where
     qualTypename :: TR.TypeName
